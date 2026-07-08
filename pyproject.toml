@@ -1,0 +1,7 @@
+[project]
+name = "call_me_maybe"
+version = "0.1.0"
+description = "Codam Core Curriculum: Call Me Maybe"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ["numpy>=2.5.1", "pydantic>=2.13.4"]

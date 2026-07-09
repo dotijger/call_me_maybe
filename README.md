@@ -6,6 +6,10 @@
 
 # Resources
 
+<https://zeroentropy.dev/concepts/constrained-decoding/>
+<https://www.json.org/json-en.html>
+<https://www.aidancooper.co.uk/constrained-decoding/>
+
 # Additional sections
 
 For this project, the README.md must also include:

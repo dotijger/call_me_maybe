@@ -2,6 +2,9 @@ from pydantic import BaseModel
 from typing import Any
 
 
+{"prompt": "", "name": "", "parameters": {"key": "value"}}
+
+
 class JSONStateMachine(BaseModel):
     prompt: str
     name: str

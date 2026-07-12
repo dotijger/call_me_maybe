@@ -1,9 +1,7 @@
 import json
 
-
-with open("src/functions_definitions.json") as f:
-    file = json.load(f)
-print(file)
-print(type(file))
-print(file[0])
-print(type(file[0]))
+char = "hello my name is donkey and i am a wooden donkey elf"
+pos = char.find("wooden")
+for i, c in enumerate(char):
+    print(i, c)
+print(pos)

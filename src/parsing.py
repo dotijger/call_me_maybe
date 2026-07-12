@@ -2,7 +2,7 @@
 
 import sys
 import json
-from error import ParsingError
+from src.error import ParsingError
 
 
 def parse_flags() -> dict[str, str]:
@@ -44,7 +44,7 @@ def prompt_parsing(file: str) -> list[str]:
     return prompts
 
 
-def import_prompts() -> None:
+def import_prompts() -> list[str]:
     try:
         flags = parse_flags()
     except ParsingError as e:
@@ -55,8 +55,16 @@ def import_prompts() -> None:
         prompts = prompt_parsing(input_file)
     else:
         prompts = prompt_parsing("data/input/function_calling_tests.json")
+    return prompts
+
+
+def test() -> None:
+    try:
+        flags = parse_flags()
+    except ParsingError as e:
+        print(e)
+        sys.exit(1)
     print(flags)
-    print(prompts)
 
 
 if __name__ == "__main__":

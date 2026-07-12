@@ -4,6 +4,13 @@ import json
 from typing import TypedDict
 
 
+class Node(TypedDict):
+    lit: str
+    choices: list[str]
+    number: None
+    string: None
+
+
 class JSONraw(TypedDict):
     name: str
     description: str
@@ -69,10 +76,26 @@ def schema_import(file: str) -> list[JSONSchema]:
     return loader.load_functions()
 
 
+def schema_creation(functions: list[JSONSchema]) -> None:
+    pass
+
+
+def tree_creation(function: JSONSchema) -> None:
+    j_string = json.dumps(function.schema)
+    # at index 10 the function name begins with f
+    print(j_string)
+    tree = []
+    tree.append({"lit": '{"name": "'})
+    pos = j_string.find('"', 10)
+    tree.append({"choice": j_string[10:pos]})
+    print(tree)
+    tree.append({"lit": })
+
+
 if __name__ == "__main__":
-    lists = schema_import("src/functions_definitions.json")
-    for schema in lists:
-        print(f"name {schema.name} = {schema.schema}")
+    lists = schema_import("functions_definitions.json")
+    for function in lists:
+        tree_creation(function)
 
 
 # parameters: {param1: {type: str}}

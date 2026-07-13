@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from functions_parser import schema_import, JSONSchema
+from .functions_parser import schema_import, JSONSchema
 import json
 
 

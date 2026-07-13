@@ -76,26 +76,47 @@ def schema_import(file: str) -> list[JSONSchema]:
     return loader.load_functions()
 
 
-def schema_creation(functions: list[JSONSchema]) -> None:
-    pass
+def schema_creation(functions: list[JSONSchema]) -> list[list[dict[str, str]]]:
+    schemas = []
+    for function in functions:
+        schemas.append(tree_creation(function))
+    return schemas
 
 
-def tree_creation(function: JSONSchema) -> None:
+def tree_creation(function: JSONSchema) -> list[dict[str, str]]:
     j_string = json.dumps(function.schema)
     # at index 10 the function name begins with f
     print(j_string)
     tree = []
-    tree.append({"lit": '{"name": "'})
+    tree.append({"lit": '"name": "'})
     pos = j_string.find('"', 10)
     tree.append({"choice": j_string[10:pos]})
-    print(tree)
-    tree.append({"lit": })
+    tree.append({"lit": '", "parameters": {'})
+    pos += len(tree[2]["lit"])  # position of the " of the first param
+    pos2 = j_string.find(":", pos) + 2  # the plus 1 is the space after
+    tree.append({"lit": j_string[pos:pos2]})
+    if j_string[pos2 + 1] == "n":
+        tree.append({"digit": ""})
+    if j_string[pos2 + 1] == "s":
+        tree.append({"string": ""})
+    if j_string.find(",", pos2) == -1:
+        tree.append({"lit": "}}"})
+        return tree
+    pos = j_string.find('"', pos2 + 2) + 1
+    pos3 = j_string.find(":", pos) + 2
+    tree.append({"lit": j_string[pos:pos3]})
+    if j_string[pos3 + 1] == "n":
+        tree.append({"digit": ""})
+    if j_string[pos3 + 1] == "s":
+        tree.append({"string": ""})
+    tree.append({"lit": "}"})
+    return tree
 
 
 if __name__ == "__main__":
     lists = schema_import("functions_definitions.json")
     for function in lists:
-        tree_creation(function)
+        print(tree_creation(function))
 
 
 # parameters: {param1: {type: str}}

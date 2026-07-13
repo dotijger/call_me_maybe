@@ -2,7 +2,7 @@
 
 import sys
 import json
-from src.error import ParsingError
+from .error import ParsingError
 
 
 def parse_flags() -> dict[str, str]:

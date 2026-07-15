@@ -6,15 +6,17 @@ from pydantic import BaseModel
 class ConstrainedDecoder(BaseModel):
     prompts: list[str]
     functions: list[str]
-    parameters: list[dict[str, ]]
+    parameters: list[dict[str,]]
+
 
 def is_prefix(small: str, big: str) -> bool:
-        for i in range(len(small)):
-            if small[i] == big[i]:
-                continue
-            else:
-                return False
-        return True
+    for i in range(len(small)):
+        if small[i] == big[i]:
+            continue
+        else:
+            return False
+    return True
+
 
 def is_prefix_string(s: str, valid: dict) -> bool:
     prefix = 0
@@ -26,8 +28,11 @@ def is_prefix_string(s: str, valid: dict) -> bool:
 
 
 def main() -> None:
+    pass
     # parse input -> store input in path
     # get prompts from input / path
+
+
 #   start output json:
 #   opening brackets
 #       for each prompt:

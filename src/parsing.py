@@ -9,9 +9,7 @@ def parse_flags() -> dict[str, str]:
     flags = {}
     arguments = []
     if len(sys.argv) <= 2:
-        raise ParsingError(
-            "No functions definition specified, exiting program"
-        )
+        raise ParsingError("No functions definition specified, exiting program")
     if len(sys.argv) >= 3:
         arguments = sys.argv.copy()
         while len(arguments) > 1:

@@ -1,7 +1,9 @@
 import json
+from llm_sdk.llm_sdk import Small_LLM_Model
 
-char = "hello my name is donkey and i am a wooden donkey elf"
-pos = char.find("wooden")
-for i, c in enumerate(char):
-    print(i, c)
-print(pos)
+llm = Small_LLM_Model()
+vocab_path = llm.get_path_to_vocab_file()
+with open(vocab_path) as v:
+    vocab = json.load(v)
+print(type(vocab))
+print(list(vocab.items())[:5])

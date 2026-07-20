@@ -1,20 +1,15 @@
 from pydantic import BaseModel, model_validator
-from typing import Self
-
-
-class Path(BaseModel):
-    input: str = "data/input/function_calling_tests.json"
-    output: str = "data/output/function_calls.json"
-    func_def: str = "data/input/functions_definition.json"
+from typing import Self, TypedDict, Any
 
 
 class Vocab(BaseModel):
     vocab: dict[int, str]
-    reverse: dict[str, int] = {}
+    inverted: dict[str, int] = {}
 
     @model_validator(mode="after")
-    def get_reverse(self) -> Self:
-        self.reverse = {k: v for v, k in self.vocab.items()}
+    def invert(self) -> Self:
+        if len(self.inverted.items()) == 0:
+            self.inverted = {k: v for v, k in self.vocab.items()}
         return self
 
     def add_to_vocab(self, node: str) -> None:
@@ -38,17 +33,20 @@ class TrieNode(BaseModel):
 class Trie(BaseModel):
     root: TrieNode | None = None
     vocab: Vocab
+    entries: list[str]
 
     @model_validator(mode="after")
-    def get_root(self) -> Self:
+    def init(self) -> Self:
         self.root = TrieNode(vocab=self.vocab)
+        for f in self.entries:
+            self.insert(f)
         return self
 
     # method to insert a key into the Trie
     def insert(self, key: str) -> None:
         current = self.root
         for char in key:
-            index = self.vocab.reverse.get(char)
+            index = self.vocab.inverted.get(char)
             if current.children[index] is None:
                 current.children[index] = TrieNode(vocab=self.vocab)
             current = current.children[index]
@@ -58,7 +56,7 @@ class Trie(BaseModel):
     def search(self, key: str) -> bool:
         current = self.root
         for char in key:
-            index = self.vocab.reverse.get(char)
+            index = self.vocab.inverted.get(char)
             if current.children[index] is None:
                 return False
             current = current.children[index]
@@ -68,10 +66,23 @@ class Trie(BaseModel):
     def is_prefix(self, prefix) -> bool:
         current = self.root
         for char in prefix:
-            index = self.vocab.reverse.get(char)
+            index = self.vocab.inverted.get(char)
             if current.children[index] is not None:
                 current = current.children[index]
         return current != self.root
+
+
+class JSONraw(TypedDict):
+    name: str
+    description: str
+    parameters: dict[str, dict[str, str]]
+    returns: dict[str, str]
+
+
+class OutputDict(TypedDict):
+    prompt: str
+    name: str
+    parameters: dict[str, Any]
 
 
 if __name__ == "__main__":

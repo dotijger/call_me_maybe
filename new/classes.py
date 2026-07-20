@@ -5,11 +5,13 @@ from typing import Self, TypedDict, Any
 class Vocab(BaseModel):
     vocab: dict[int, str]
     inverted: dict[str, int] = {}
+    size: int
 
     @model_validator(mode="after")
-    def invert(self) -> Self:
+    def init(self) -> Self:
         if len(self.inverted.items()) == 0:
             self.inverted = {k: v for v, k in self.vocab.items()}
+        self.size = len(self.vocab.items())
         return self
 
     def add_to_vocab(self, node: str) -> None:

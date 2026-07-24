@@ -154,7 +154,7 @@ class ConstrainedDecoder(BaseModel):
         while generating is True:
             print(f"step, generated so far: {generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
-            allowed = self._allowed(generated, "name", False)
+            allowed = self._allowed(generated, "name", False, None)
             mask = self._get_mask(logits, allowed, not_allowed)
             masked = logits + mask
             next_id = np.argmax(masked)
@@ -170,7 +170,9 @@ class ConstrainedDecoder(BaseModel):
                     not_allowed.append(next_id)
         return generated
 
-    def _allowed(self, generated: str, kind: str, end: bool) -> list[int]:
+    def _allowed(
+        self, generated: str, kind: str, end: bool, prompt: str | None
+    ) -> list[int]:
         allowed = []
         if kind == "name":
             for value in self.llm_vocab.vocab.values():
@@ -181,32 +183,32 @@ class ConstrainedDecoder(BaseModel):
                 else:
                     continue
         elif kind == "string":
-            if generated is None:
+            if generated == "":
                 state = ParameterState.STRING_START
                 for value in self.llm_vocab.vocab.values():
-                    if is_candidate_allowed(state, generated, value, end):
+                    if is_candidate_allowed(state, generated, value, end, prompt):
                         allowed.append(self.llm_vocab.inverted.get(value))
             else:
                 state = ParameterState.STRING_MID
                 for value in self.llm_vocab.vocab.values():
-                    if is_candidate_allowed(state, generated, value, end):
+                    if is_candidate_allowed(state, generated, value, end, prompt):
                         allowed.append(self.llm_vocab.inverted.get(value))
         elif kind == "number":
-            if generated is None:
+            if generated == "":
                 state = ParameterState.NUM_START
                 for value in self.llm_vocab.vocab.values():
-                    if is_candidate_allowed(state, generated, value, end):
+                    if is_candidate_allowed(state, generated, value, end, prompt):
                         allowed.append(self.llm_vocab.inverted.get(value))
             else:
                 if self._check_dots(generated):
                     state = ParameterState.NUM_MID_DOT
                     for value in self.llm_vocab.vocab.values():
-                        if is_candidate_allowed(state, generated, value, end):
+                        if is_candidate_allowed(state, generated, value, end, prompt):
                             allowed.append(self.llm_vocab.inverted.get(value))
                 else:
                     state = ParameterState.NUM_MID_NO_DOT
                     for value in self.llm_vocab.vocab.values():
-                        if is_candidate_allowed(state, generated, value, end):
+                        if is_candidate_allowed(state, generated, value, end, prompt):
                             allowed.append(self.llm_vocab.inverted.get(value))
         else:
             print("Undefined token request, not allowing any IDs")
@@ -220,32 +222,52 @@ class ConstrainedDecoder(BaseModel):
         print(text)
         input_ids = self._encode(text)
         parameter = ""
+        fn_words = function[0].split("_")
+        prompt_words = prompt.lower().split(" ")
+        parameter_prompt = ""
+        for word in prompt_words:
+            if word not in fn_words:
+                parameter_prompt = parameter_prompt + word + " "
+        # regex = self._check_regex(function)
         if kind == "string":
-            parameter = self._get_string(input_ids, (function[1] == count))
+            parameter = self._get_string(
+                input_ids, (function[1] == count), parameter_prompt
+            )
             return parameter
         elif kind == "number":
-            parameter = self._get_number(input_ids, (function[1] == count))
+            parameter = self._get_number(
+                input_ids, (function[1] == count), parameter_prompt
+            )
         return parameter
 
-    def _get_number(self, input_ids: list[int], is_last_parameter: bool) -> str:
+    def _get_number(
+        self, input_ids: list[int], is_last_parameter: bool, prompt: str
+    ) -> str:
         generated = ""
         generating = True
-        terminator = "}" if is_last_parameter else ","
+        terminator = " " if is_last_parameter else ","
         while generating is True:
             print(f"step, generated so far: {generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
-            allowed = self._allowed(generated, "number", is_last_parameter)
+            allowed = self._allowed(generated, "number", is_last_parameter, prompt)
+            if not allowed:
+                generating = False
+                break
             mask = self._get_mask(logits, allowed, None)
             masked = logits + mask
             next_id = np.argmax(masked)
-            if generated.endswith(terminator):
+            if generated.endswith(terminator) or len(generated) > 20:
                 generating = False
             else:
                 generated += self.llm_vocab.vocab.get(next_id)
                 input_ids.append(next_id)
+        if is_last_parameter:
+            generated = generated.rstrip(" ") + "}"
         return generated
 
-    def _get_string(self, input_ids: list[int], is_last_parameter: bool) -> str:
+    def _get_string(
+        self, input_ids: list[int], is_last_parameter: bool, prompt: str
+    ) -> str:
         generated = '"'
         generating = True
         terminator = "}" if is_last_parameter else ","
@@ -254,7 +276,10 @@ class ConstrainedDecoder(BaseModel):
         while generating is True:
             print(f"step, generated so far: {generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
-            allowed = self._allowed(generated, "string", is_last_parameter)
+            allowed = self._allowed(generated, "string", is_last_parameter, prompt)
+            if not allowed:
+                generating = False
+                break
             mask = self._get_mask(logits, allowed, None)
             masked = logits + mask
             next_id = np.argmax(masked)
@@ -386,6 +411,10 @@ class ConstrainedDecoder(BaseModel):
             if self._is_prefix(s, value):
                 prefix = 1
         return prefix == 1
+
+    @staticmethod
+    def _allowed_tokens(text: str) -> list[str]:
+        return text.split(" ")
 
     @staticmethod
     def _replace_space(text: str) -> str:

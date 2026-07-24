@@ -3,7 +3,7 @@
 import json
 from typing import TypedDict
 from pydantic import BaseModel
-from parsing import Path
+from new.parsing import Path
 
 
 class JSONraw(TypedDict):

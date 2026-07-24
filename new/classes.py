@@ -5,7 +5,7 @@ from typing import Self, TypedDict, Any
 class Vocab(BaseModel):
     vocab: dict[int, str]
     inverted: dict[str, int] = {}
-    size: int
+    size: int | None = None
 
     @model_validator(mode="after")
     def init(self) -> Self:
@@ -59,6 +59,8 @@ class Trie(BaseModel):
         current = self.root
         for char in key:
             index = self.vocab.inverted.get(char)
+            if index is None:
+                return False
             if current.children[index] is None:
                 return False
             current = current.children[index]
@@ -67,10 +69,17 @@ class Trie(BaseModel):
     # method to check if a prefix exists in the trie
     def is_prefix(self, prefix) -> bool:
         current = self.root
+        i = 0
         for char in prefix:
             index = self.vocab.inverted.get(char)
+            if index is None:
+                return False
             if current.children[index] is not None:
                 current = current.children[index]
+            else:
+                i += 1
+        if i > 0:
+            return False
         return current != self.root
 
 

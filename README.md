@@ -19,3 +19,6 @@ For this project, the README.md must also include:
 • Challenges faced: Document difficulties encountered and how you solved them
 • Testing strategy: Describe how you validated your implementation
 • Example usage: Provide clear examples of running your program
+
+
+https://pydantic.dev/docs/validation/latest/concepts/types/#arbitrary-types-allowed

@@ -2,7 +2,7 @@
 
 import sys
 import json
-from .error import ParsingError
+from src.error import ParsingError
 from pydantic import BaseModel
 
 

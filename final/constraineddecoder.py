@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
-from new.error import EncodeError, DecodeError
-from new.parsing import Path
-from new.function_parser import input_parsing
+from final.error import EncodeError, DecodeError
+from final.parsing import Path, input_parsing
 from pydantic import BaseModel, model_validator, ConfigDict
-from new.classes import Trie, TrieNode, Vocab, JSONraw, OutputDict
+from final.classes import Trie, Vocab, JSONraw, OutputDict
 from llm_sdk.llm_sdk import Small_LLM_Model
 from typing import Any
-from new.state import ParameterState, is_candidate_allowed
+from final.state import ParameterState, is_candidate_allowed
+from final.helpers import is_prefix_string, replace_space, replace_g, get_mask
+from final.coder import Coder
 import json
 import numpy as np
 # decoder = ConstrainedDecoder(path=path,llm=Small_LLM_Model(),trie_vocab={})
@@ -15,71 +16,28 @@ import numpy as np
 
 class ConstrainedDecoder(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    vocab_json: dict[int, str] = {
-        0: "_",
-        1: "{",
-        2: "}",
-        3: ",",
-        4: ":",
-        5: "a",
-        6: "b",
-        7: "c",
-        8: "d",
-        9: "e",
-        10: "f",
-        11: "g",
-        12: "h",
-        13: "i",
-        14: "j",
-        15: "k",
-        16: "l",
-        17: "m",
-        18: "n",
-        19: "o",
-        20: "p",
-        21: "q",
-        22: "r",
-        23: "s",
-        24: "t",
-        25: "u",
-        26: "v",
-        27: "w",
-        28: "x",
-        29: "y",
-        30: "z",
-    }
-    path: Path | None = None
+    path: Path()
     llm: Small_LLM_Model  # insert model name as first param, if blank default = qwen
     prompts: list[str] | None = None
     functions: list[JSONraw] | None = None
     function_names: list[str] | None = None
-    trie_functions: Trie | None = None
-    trie_vocab: Vocab | None = None
     llm_vocab: Vocab | None = None
     param_schema: dict[str, list[str]] | None = None
     output: str | None = None
     output_list: list[str] | None = None
     nl_input_ids: list[int] | None = None
+    coder: Coder | None = None
 
     @model_validator(mode="after")
     def setup(self) -> None:
-        if self.path is None:
-            self.path = Path()
-        # json_vocab:
-        self.trie_vocab = Vocab(vocab=self.vocab_json)
         # parsing the prompts
         self.prompts = input_parsing(self.path.input)
-
         # parsing the function definitions
         with open(self.path.func_def) as f:
             self.functions = json.load(f)
         self.function_names = []
         for function in self.functions:
             self.function_names.append(function.get("name"))
-
-        # creating the trie structure for the possible function names
-        self.trie_functions = Trie(vocab=self.trie_vocab, entries=self.function_names)
-
         # loading the llm vocab
         if self.llm_vocab is None:
             vocab_path = self.llm.get_path_to_vocab_file()
@@ -89,7 +47,7 @@ class ConstrainedDecoder(BaseModel):
             self.llm_vocab = Vocab(
                 vocab={k: v for v, k in vocab.items()}, inverted=vocab
             )
-
+        self.coder = Coder(llm_vocab=self.llm_vocab)
         # loading paramater schema lookup dictionary
         self.param_schema = self._loading_parameters()
 
@@ -100,8 +58,8 @@ class ConstrainedDecoder(BaseModel):
         Allowed functions and their descriptions: "
         for function in self.functions:
             natural_language += f"Name: '{function.get('name')}', description: {function.get('description')}."
-        text = self._replace_space(natural_language)
-        self.nl_input_ids = self._encode(text)
+        text = replace_space(natural_language)
+        self.nl_input_ids = self.coder.encode(text)
 
         return self
 
@@ -153,14 +111,14 @@ class ConstrainedDecoder(BaseModel):
         not_allowed = []
         prompts = f"Answer this prompt: {prompt}"
         text = self._replace_space(prompts)
-        input_ids += self.nl_input_ids + self._encode(text)
-        print(repr(self._decode(input_ids)))
+        input_ids += self.nl_input_ids + self.coder.encode(text)
+        print(repr(self.coder.decode(input_ids)))
         print(type(input_ids))
         while generating is True:
             print(f"step, generated so far: {generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(generated, "name", False, None)
-            mask = self._get_mask(logits, allowed, not_allowed)
+            mask = get_mask(logits, allowed, not_allowed)
             masked = logits + mask
             next_id = np.argmax(masked)
             if self.trie_functions.search(generated):
@@ -223,9 +181,9 @@ class ConstrainedDecoder(BaseModel):
         self, prompt: str, function: tuple[str, int], kv: tuple[str, str], count: int
     ) -> str:
         llm_prompt = self._generate_param_prompt(function, count, prompt, kv[1])
-        text = self._replace_space(llm_prompt)
+        text = replace_space(llm_prompt)
         print(text)
-        input_ids = self._encode(text)
+        input_ids = self.coder.encode(text)
         parameter = ""
         fn_words = function[0].split("_")
         prompt_words = prompt.split(" ")
@@ -268,7 +226,7 @@ class ConstrainedDecoder(BaseModel):
             if not allowed:
                 generating = False
                 break
-            mask = self._get_mask(logits, allowed, None)
+            mask = get_mask(logits, allowed, None)
             masked = logits + mask
             next_id = np.argmax(masked)
             if generated.endswith(terminator) or len(generated) > 20:
@@ -290,7 +248,7 @@ class ConstrainedDecoder(BaseModel):
         generating = True
         terminator = "}" if is_last_parameter else ","
         end = f'"{terminator}'
-        input_ids += self._encode('"')
+        input_ids += self.coder.encode('"')
         while generating is True:
             print(f"step, generated so far: {generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
@@ -298,7 +256,7 @@ class ConstrainedDecoder(BaseModel):
             if not allowed:
                 generating = False
                 break
-            mask = self._get_mask(logits, allowed, None)
+            mask = get_mask(logits, allowed, None)
             masked = logits + mask
             next_id = np.argmax(masked)
             if generated.endswith(end):
@@ -306,97 +264,8 @@ class ConstrainedDecoder(BaseModel):
             else:
                 generated += self.llm_vocab.vocab.get(next_id)
                 input_ids.append(next_id)
-        generated = self._replace_g(generated)
+        generated = replace_g(generated)
         return generated
-
-    # masking helpers
-
-    def _get_mask(
-        self, logits: list[float], ids: list[int], non: list[int] | None
-    ) -> np.typing.ArrayLike:
-        # an id is also its 'index' in the vocabulary / the key
-        mask = np.full(len(logits), -np.inf)
-        if non is None:
-            for id in ids:
-                mask[id] = 0
-            return mask
-        for id in ids:
-            if id not in non:
-                mask[id] = 0
-        return mask
-
-    # encoding + helpers
-    def _encode(self, string: str) -> list[int]:
-        ids = []
-        possible_ids = []
-        tokenized = ""
-        i = 0
-        sub = string[i]
-        pop = 0
-        while tokenized != string:
-            tmp = self._find_match(sub)
-            if len(possible_ids) > 0:
-                if possible_ids[-1] == tmp:
-                    pop = 1
-            if tmp == -1 or pop:
-                if self._is_prefix_string(sub, self.llm_vocab.vocab):
-                    i += 1
-                    if i < len(string):
-                        sub += string[i]
-                        continue
-                if len(possible_ids) == 0:
-                    print(tokenized, string)
-                    raise EncodeError(
-                        "String cannot be encoded, vocabulary insufficient"
-                    )
-                longest = self._find_longest_match(possible_ids)
-                ids.append(longest)
-                possible_ids = []
-                tokenized += self.llm_vocab.vocab.get(longest)
-                if tokenized == string:
-                    return ids
-                i = string.find(tokenized) + len(tokenized)
-                sub = string[i]
-                pop = 0
-            else:
-                possible_ids.append(tmp)
-                if tokenized + sub == string:
-                    longest = self._find_longest_match(possible_ids)
-                    ids.append(longest)
-                    return ids
-                else:
-                    i += 1
-                    if i < len(string):
-                        sub += string[i]
-        longest = self._find_longest_match(possible_ids)
-        ids.append(longest)
-        return ids
-
-    def _find_match(self, string: str) -> int:
-        id = -1
-        for i in range(self.llm_vocab.size):
-            if self.llm_vocab.vocab.get(i) == string:
-                id = i
-        return id
-
-    def _find_longest_match(self, ids: list[int]) -> int:
-        max = 0
-        longest = -1
-        for id in ids:
-            if len(self.llm_vocab.vocab.get(id)) > max:
-                max = len(self.llm_vocab.vocab.get(id))
-                longest = id
-        return longest
-
-    # decoder
-    def _decode(self, ids: list[int]) -> str:
-        decoded = ""
-        for id in ids:
-            next_str = self.llm_vocab.vocab.get(id)
-            if next_str is None:
-                raise DecodeError("Given ID is not in LLM vocab")
-            decoded += next_str
-        return decoded
 
     # parameter prompt generator
     def _generate_param_prompt(
@@ -413,36 +282,8 @@ class ConstrainedDecoder(BaseModel):
         return prompt
 
     @staticmethod
-    def _is_prefix(small: str, big: str) -> bool:
-        if len(small) > len(big) or len(small) == 0:
-            return False
-        for i in range(len(small)):
-            if small[i] == big[i]:
-                continue
-            else:
-                return False
-        return True
-
-    def _is_prefix_string(self, s: str, valid: dict) -> bool:
-        prefix = 0
-        for value in valid.values():
-            if self._is_prefix(s, value):
-                prefix = 1
-        return prefix == 1
-
-    @staticmethod
     def _allowed_tokens(text: str) -> list[str]:
         return text.split(" ")
-
-    @staticmethod
-    def _replace_space(text: str) -> str:
-        return text.replace(" ", "Ġ")
-
-    @staticmethod
-    def _replace_g(text: str) -> str:
-        if text[0] == "Ġ":
-            return text[1:].replace("Ġ", " ")
-        return text.replace("Ġ", " ")
 
     @staticmethod
     def _check_dots(text: str) -> bool:
@@ -451,22 +292,6 @@ class ConstrainedDecoder(BaseModel):
             if char == ".":
                 dots += 1
         return dots
-
-    @staticmethod
-    def _get_substring(text: str) -> list[str]:
-        substrings = []
-        i = 0
-        while i < len(text):
-            char = text[i]
-            if char in "'\"":
-                end = text.find(char, i + 1)
-                if end == -1:
-                    break
-                substrings.append(text[i + 1 : end])
-                i = end + 1
-            else:
-                i += 1
-        return substrings
 
     def _remove_used(self, text: str) -> str:
         available = text.split(" ")

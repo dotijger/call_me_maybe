@@ -16,26 +16,30 @@ def is_valid_string_start(
     if temp[0] != '"':
         return False
     if len(temp) > 1:
-        return is_valid_string_mid(generated, token, is_last_parameter)
-    return temp in prompt
+        return is_valid_string_mid(generated, token, is_last_parameter, prompt)
+    return temp == '"'
 
 
 def is_valid_string_mid(
     generated: str, token: str, is_last_parameter: bool, prompt: str
 ) -> bool:
+    # allowed = prompt.split(" ")
     temp = generated + token
     terminator = "}" if is_last_parameter else ","
     end = f'"{terminator}'
-    if len(generated) >= 100:
-        if not token.endswith(end):
-            return False
+    # if len(generated) >= max(map(len, allowed)):
+    # if not token.endswith(end):
+    # return False
     if temp.endswith(end):
         content = temp[1 : -len(end)]
-    elif temp.endswith('"'):
+        return content in allowed
+    elif temp[1:].endswith('"'):
         content = temp[1:-1]
+        return content in prompt
     else:
         content = temp[1:]
     return content in prompt
+    # return any(s.startswith(content) for s in allowed)
 
 
 def is_valid_number_start(
@@ -98,6 +102,35 @@ def is_number(text: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def r_is_valid_string_start(
+    generated: str, token: str, is_last_parameter: bool, prompt: str
+) -> bool:
+    temp = generated + token
+    if temp[0] != '"':
+        return False
+    if len(temp) > 1:
+        return r_is_valid_string_mid(generated, token, is_last_parameter, prompt)
+    return temp == '"'
+
+
+def r_is_valid_string_mid(
+    generated: str, token: str, is_last_parameter: bool, prompt: str
+) -> bool:
+    temp = generated + token
+    terminator = "}" if is_last_parameter else ","
+    end = f'"{terminator}'
+    if temp.endswith(end):
+        content = temp[1 : -len(end)]
+        return content.isalpha()
+    elif temp[1:].endswith('"'):
+        content = temp[1:-1]
+        return content.isalpha()
+    else:
+        content = temp[1:]
+    return content.isalpha()
+    # return any(s.startswith(content) for s in allowed)
 
 
 def is_candidate_allowed(

@@ -3,7 +3,7 @@
 from final.error import EncodeError, DecodeError
 from final.parsing import Path, input_parsing
 from pydantic import BaseModel, model_validator, ConfigDict
-from final.classes import Trie, Vocab, JSONraw, OutputDict
+from final.classes import Vocab, JSONraw, OutputDict
 from llm_sdk.llm_sdk import Small_LLM_Model
 from typing import Any
 from final.state import ParameterState, is_candidate_allowed
@@ -23,8 +23,8 @@ class ConstrainedDecoder(BaseModel):
     function_names: list[str] | None = None
     llm_vocab: Vocab | None = None
     param_schema: dict[str, list[str]] | None = None
-    output: str | None = None
-    output_list: list[str] | None = None
+    output: OutputDict | None = None
+    output_list: list[OutputDict] | None = None
     nl_input_ids: list[int] | None = None
     coder: Coder | None = None
 
@@ -87,100 +87,33 @@ class ConstrainedDecoder(BaseModel):
         # self._output_to_json()
 
     def _process_prompt(self, prompt: str) -> None:
-        self.output = '{"prompt": "' + prompt + '", "name": "'
-        name = self._generate_name(prompt)
-        self.output = self.output + name + '", "parameters": {'
-        parameters = self.param_schema[name]
+        self.output["prompt"] = prompt
+        self.output["name"] = self._generate_name(prompt)
+        parameters = self.param_schema[self.output.get("name")]
         print(parameters)
         amount = len(parameters)
         i = 1
-        info = (name, amount)
+        info = (self.output.get("name"), amount)
         for key, value in parameters:
-            self.output += f'"{key}": '
             parameter = self._get_parameter(prompt, info, (key, value), i)
-            self.output += f"{parameter}"
+            self.output["parameter"] = parameter
             if i != amount:
                 self.output += " "
             i += 1
         self.output += "}"
 
-    def _generate_name(self, prompt: str) -> str:
-        generated = ""
-        generating = True
-        input_ids = []
-        not_allowed = []
-        prompts = f"Answer this prompt: {prompt}"
-        text = self._replace_space(prompts)
-        input_ids += self.nl_input_ids + self.coder.encode(text)
-        print(repr(self.coder.decode(input_ids)))
-        print(type(input_ids))
-        while generating is True:
-            print(f"step, generated so far: {generated!r}", flush=True)
-            logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
-            allowed = self._allowed(generated, "name", False, None)
-            mask = get_mask(logits, allowed, not_allowed)
-            masked = logits + mask
-            next_id = np.argmax(masked)
-            if self.trie_functions.search(generated):
-                generating = False
-            else:
-                temp_gen = generated + self.llm_vocab.vocab.get(next_id)
-                if self.trie_functions.is_prefix(temp_gen):
-                    not_allowed = []
-                    input_ids.append(next_id)
-                    generated += self.llm_vocab.vocab.get(next_id)
-                else:
-                    not_allowed.append(next_id)
-        return generated
-
-    def _allowed(
-        self, generated: str, kind: str, end: bool, prompt: str | None
-    ) -> list[int]:
-        allowed = []
-        if kind == "name":
-            for value in self.llm_vocab.vocab.values():
-                if self.trie_functions.is_prefix(generated + value):
-                    allowed.append(self.llm_vocab.inverted.get(value))
-                elif self.trie_functions.search(generated + value):
-                    allowed.append(self.llm_vocab.inverted.get(value))
-                else:
-                    continue
-        elif kind == "string":
-            if generated == "":
-                state = ParameterState.STRING_START
-                for value in self.llm_vocab.vocab.values():
-                    if is_candidate_allowed(state, generated, value, end, prompt):
-                        allowed.append(self.llm_vocab.inverted.get(value))
-            else:
-                state = ParameterState.STRING_MID
-                for value in self.llm_vocab.vocab.values():
-                    if is_candidate_allowed(state, generated, value, end, prompt):
-                        allowed.append(self.llm_vocab.inverted.get(value))
-        elif kind == "number":
-            if generated == "":
-                state = ParameterState.NUM_START
-                for value in self.llm_vocab.vocab.values():
-                    if is_candidate_allowed(state, generated, value, end, prompt):
-                        allowed.append(self.llm_vocab.inverted.get(value))
-            else:
-                if self._check_dots(generated):
-                    state = ParameterState.NUM_MID_DOT
-                    for value in self.llm_vocab.vocab.values():
-                        if is_candidate_allowed(state, generated, value, end, prompt):
-                            allowed.append(self.llm_vocab.inverted.get(value))
-                else:
-                    state = ParameterState.NUM_MID_NO_DOT
-                    for value in self.llm_vocab.vocab.values():
-                        if is_candidate_allowed(state, generated, value, end, prompt):
-                            allowed.append(self.llm_vocab.inverted.get(value))
-        else:
-            print("Undefined token request, not allowing any IDs")
-        return allowed
-
     def _get_parameter(
         self, prompt: str, function: tuple[str, int], kv: tuple[str, str], count: int
     ) -> str:
-        llm_prompt = self._generate_param_prompt(function, count, prompt, kv[1])
+        """
+        prompt = the function calling test prompt
+        fucntion = tuple containing
+                    str: the fn_name that has been given to answer this prompt,
+                    int: the amount of parameters for this fn_name to fill out
+        kv = tuple containing key (name of parameter) value (type of parameter)
+        count = index of the parameter being asked to generate (if count == function[1], last parameter)
+        """
+        llm_prompt = self._prompt(function, count, prompt, kv[1])
         text = replace_space(llm_prompt)
         print(text)
         input_ids = self.coder.encode(text)
@@ -268,9 +201,7 @@ class ConstrainedDecoder(BaseModel):
         return generated
 
     # parameter prompt generator
-    def _generate_param_prompt(
-        self, info: tuple[str, int], count: int, prompt: str, kind: str
-    ) -> str:
+    def _prompt(self, info: tuple[str, int], count: int, prompt: str, kind: str) -> str:
         parameters = self.param_schema[info[0]]
         param_to_extract = parameters[count - 1][0]
         prompt = f"User prompt: {prompt} \

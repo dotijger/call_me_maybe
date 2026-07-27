@@ -63,6 +63,9 @@ class NameGenerator(BaseModel):
         return Self
 
     def generate(self, llm: Small_LLM_Model, prompt: str) -> str:
+        """
+        namegen.generate(llm_model, "function specific prompt")
+        """
         generated = ""
         generating = True
         input_ids = []

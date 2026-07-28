@@ -15,7 +15,7 @@ class NameGenerator(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     function_names: list[str]
     llm_vocab: Vocab
-    llm_prompt: str
+    llm_prompt: list[int]
     coder: Coder
     trie_vocab: Vocab = Vocab(
         vocab={
@@ -70,9 +70,9 @@ class NameGenerator(BaseModel):
         generating = True
         input_ids = []
         not_allowed = []
-        prompts = f"{self.llm_prompt}. Answer this prompt: {prompt}"
+        prompts = f"Answer this prompt: {prompt}"
         text = replace_space(prompts)
-        input_ids += self.coder.encode(text)
+        input_ids = self.llm_prompt + self.coder.encode(text)
         print(repr(self.coder.decode(input_ids)))
         print(type(input_ids))
         while generating is True:

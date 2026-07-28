@@ -1,8 +1,10 @@
 from pydantic import BaseModel, model_validator, ConfigDict
 from llm_sdk.llm_sdk import Small_LLM_Model
-from final.classes import Vocab
+from final.classes import Vocab, Trie
 from final.coder import Coder
-from final.error import NoParameterDefinedError
+import numpy as np
+from final.helpers import get_mask, replace_g, is_number, replace_space
+from typing import Self
 
 
 class BaseParameterGenerator(BaseModel):
@@ -14,6 +16,7 @@ class BaseParameterGenerator(BaseModel):
     llm: Small_LLM_Model
     llm_vocab: Vocab
     coder: Coder
+    generated: str | None = None
 
     # parameter prompt generator
     def prompt(self, info: tuple[str, int], count: int, prompt: str, kind: str) -> str:
@@ -28,9 +31,7 @@ class BaseParameterGenerator(BaseModel):
         return prompt
 
     def generate(self, input_ids: list[int], is_last: bool, context: str) -> str:
-        raise NoParameterDefinedError(
-            "Calling generation on a base generator class instance."
-        )
+        return "NULL"
 
 
 class StringParameterGenerator(BaseParameterGenerator):
@@ -38,37 +39,79 @@ class StringParameterGenerator(BaseParameterGenerator):
     gen = StringParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
-    def _get_string(
+    def generate(
         self,
         input_ids: list[int],
         is_last_parameter: bool,
         prompt: str,
     ) -> str:
-        generated = '"'
+        self.generated = '"'
         generating = True
         terminator = "}" if is_last_parameter else ","
         end = f'"{terminator}'
         input_ids += self.coder.encode('"')
         while generating is True:
-            print(f"step, generated so far: {generated!r}", flush=True)
+            print(f"step, generated so far: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
-            allowed = self._allowed(generated, "string", is_last_parameter, "regex")
+            allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
                 generating = False
                 break
             mask = get_mask(logits, allowed, None)
             masked = logits + mask
             next_id = np.argmax(masked)
-            if generated.endswith(end):
+            if self.generated.endswith(end):
                 generating = False
             else:
-                generated += self.llm_vocab.vocab.get(next_id)
+                self.generated += self.llm_vocab.vocab.get(next_id)
                 input_ids.append(next_id)
-        generated = replace_g(generated)
-        return generated
+        self.generated = replace_g(self.generated)
+        self.generated -= end
+        return self.generated
 
-    def generate(self, input_ids: list[int], is_last: bool, context: str) -> str:
-        pass
+    def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
+        allowed = []
+        if self.generated == "":
+            for value in self.llm_vocab.vocab.values():
+                if self._valid_regex_start(value, is_last_parameter, context):
+                    allowed.append(self.llm_vocab.inverted.get(value))
+        else:
+            for value in self.llm_vocab.vocab.values():
+                if self._valid_regex_mid(value, is_last_parameter, context):
+                    allowed.append(self.llm_vocab.inverted.get(value))
+        return allowed
+
+    def _valid_string_start(
+        self, token: str, is_last_parameter: bool, prompt: str
+    ) -> bool:
+        temp = self.generated + token
+        if temp[0] != '"':
+            return False
+        if len(temp) > 1:
+            return self._valid_regex_mid(token, is_last_parameter, prompt)
+        return temp == '"'
+
+    def _valid_string_mid(
+        self, token: str, is_last_parameter: bool, prompt: str
+    ) -> bool:
+        # allowed = prompt.split(" ")
+        temp = self.generated + token
+        terminator = "}" if is_last_parameter else ","
+        end = f'"{terminator}'
+        # if len(generated) >= max(map(len, allowed)):
+        # if not token.endswith(end):
+        # return False
+        if temp.endswith(end):
+            content = temp[1 : -len(end)]
+            return content in prompt
+        elif temp[1:].endswith('"'):
+            content = temp[1:-1]
+            return content in prompt
+        else:
+            content = temp[1:]
+        return content in prompt
+
+    # return any(s.startswith(content) for s in allowed)
 
 
 class RegexParameterGenerator(BaseParameterGenerator):
@@ -76,8 +119,73 @@ class RegexParameterGenerator(BaseParameterGenerator):
     gen = RegexParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
-    def generate(self, input_ids: list[int], is_last: bool, context: str) -> str:
-        pass
+    def generate(
+        self,
+        input_ids: list[int],
+        is_last_parameter: bool,
+        prompt: str,
+    ) -> str:
+        self.generated = '"'
+        generating = True
+        terminator = "}" if is_last_parameter else ","
+        end = f'"{terminator}'
+        input_ids += self.coder.encode('"')
+        while generating is True:
+            print(f"step, generated so far: {self.generated!r}", flush=True)
+            logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
+            allowed = self._allowed(is_last_parameter, prompt)
+            if not allowed:
+                generating = False
+                break
+            mask = get_mask(logits, allowed, None)
+            masked = logits + mask
+            next_id = np.argmax(masked)
+            if self.generated.endswith(end):
+                generating = False
+            else:
+                self.generated += self.llm_vocab.vocab.get(next_id)
+                input_ids.append(next_id)
+        self.generated = replace_g(self.generated)
+        self.generated -= end
+        return self.generated
+
+    def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
+        allowed = []
+        if self.generated == "":
+            for value in self.llm_vocab.vocab.values():
+                if self._valid_regex_start(value, is_last_parameter, context):
+                    allowed.append(self.llm_vocab.inverted.get(value))
+        else:
+            for value in self.llm_vocab.vocab.values():
+                if self._valid_regex_mid(value, is_last_parameter, context):
+                    allowed.append(self.llm_vocab.inverted.get(value))
+        return allowed
+
+    def _valid_regex_start(
+        self, token: str, is_last_parameter: bool, prompt: str
+    ) -> bool:
+        temp = self.generated + token
+        if temp[0] != '"':
+            return False
+        if len(temp) > 1:
+            return self._valid_regex_mid(token, is_last_parameter, prompt)
+        return temp == '"'
+
+    def _valid_regex_mid(
+        self, token: str, is_last_parameter: bool, prompt: str
+    ) -> bool:
+        temp = self.generated + token
+        terminator = "}" if is_last_parameter else ","
+        end = f'"{terminator}'
+        if temp.endswith(end):
+            content = temp[1 : -len(end)]
+            return content.isalpha()
+        elif temp[1:].endswith('"'):
+            content = temp[1:-1]
+            return content.isalpha()
+        else:
+            content = temp[1:]
+        return content.isalpha()
 
 
 class IntegerParameterGenerator(BaseParameterGenerator):
@@ -85,8 +193,70 @@ class IntegerParameterGenerator(BaseParameterGenerator):
     gen = IntegerParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
-    def generate(self, input_ids: list[int], is_last: bool, context: str) -> str:
-        pass
+    def generate(
+        self, input_ids: list[int], is_last_parameter: bool, prompt: str
+    ) -> str:
+        self.generated = ""
+        generating = True
+        terminator = " " if is_last_parameter else ","
+        while generating is True:
+            print(f"step, generated so far: {self.generated!r}", flush=True)
+            logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
+            allowed = self._allowed(is_last_parameter, prompt)
+            if not allowed:
+                generating = False
+                break
+            mask = get_mask(logits, allowed, None)
+            masked = logits + mask
+            next_id = np.argmax(masked)
+            if self.generated.endswith(terminator) or len(self.generated) > 20:
+                generating = False
+            else:
+                self.generated += self.llm_vocab.vocab.get(next_id)
+                input_ids.append(next_id)
+        self.generated -= terminator
+        return self.generated
+
+    def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
+        allowed = []
+        if self.generated == "":
+            for value in self.llm_vocab.vocab.values():
+                if self._valid_int_start(value, is_last_parameter, context):
+                    allowed.append(self.llm_vocab.inverted.get(value))
+        else:
+            for value in self.llm_vocab.vocab.values():
+                if self._valid_int_mid(value, is_last_parameter, context):
+                    allowed.append(self.llm_vocab.inverted.get(value))
+        return allowed
+
+    def _valid_int_start(
+        self, token: str, is_last_parameter: bool, prompt: str
+    ) -> list[int]:
+        temp = self.generated + token
+        if len(temp) > 1:
+            return self._valid_int_mid(self.generated, token, is_last_parameter, prompt)
+        if temp[0] == "-":
+            return True
+        if temp[0] == ".":
+            return False
+        return temp.isdigit() and temp in prompt
+
+    def _valid_int_mid(self, token: str, is_last_parameter: bool, prompt: str) -> bool:
+        for char in token:
+            if char == ".":
+                return False
+            if char == "-":
+                return False
+        temp = self.generated + token
+        terminator = " " if is_last_parameter else ","
+        if len(self.generated) >= 20:
+            if token[-1] != terminator:
+                return False
+        if temp.endswith(terminator):
+            nbr = temp[:-1]
+        else:
+            nbr = temp
+        return is_number(nbr) and nbr in prompt
 
 
 class NumberParameterGenerator(BaseParameterGenerator):
@@ -94,30 +264,202 @@ class NumberParameterGenerator(BaseParameterGenerator):
     gen = NumberParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
-    def _get_number(
+    def generate(
         self, input_ids: list[int], is_last_parameter: bool, prompt: str
     ) -> str:
-        generated = ""
+        self.generated = ""
         generating = True
         terminator = " " if is_last_parameter else ","
         while generating is True:
-            print(f"step, generated so far: {generated!r}", flush=True)
+            print(f"step, generated so far: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
-            allowed = self._allowed(generated, "number", is_last_parameter, prompt)
+            allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
                 generating = False
                 break
             mask = get_mask(logits, allowed, None)
             masked = logits + mask
             next_id = np.argmax(masked)
-            if generated.endswith(terminator) or len(generated) > 20:
+            if self.generated.endswith(terminator) or len(self.generated) > 20:
                 generating = False
             else:
-                generated += self.llm_vocab.vocab.get(next_id)
+                self.generated += self.llm_vocab.vocab.get(next_id)
                 input_ids.append(next_id)
-        if is_last_parameter:
-            generated = generated.rstrip(" ") + "}"
+        self.generated -= terminator
+        return self.generated
+
+    def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
+        allowed = []
+        if self.generated == "":
+            for value in self.llm_vocab.vocab.values():
+                if self._valid_flt_start(value, is_last_parameter, context):
+                    allowed.append(self.llm_vocab.inverted.get(value))
+        else:
+            if self._check_dots(self.generated):
+                for value in self.llm_vocab.vocab.values():
+                    if self._valid_flt_mid_dot(value, is_last_parameter, context):
+                        allowed.append(self.llm_vocab.inverted.get(value))
+            else:
+                for value in self.llm_vocab.vocab.values():
+                    if self._valid_flt_mid_no_dot(value, is_last_parameter, context):
+                        allowed.append(self.llm_vocab.inverted.get(value))
+        return allowed
+
+    def _valid_flt_start(
+        self, token: str, is_last_parameter: bool, prompt: str
+    ) -> bool:
+        temp = self.generated + token
+        if len(temp) > 1:
+            return self._valid_int_mid(self.generated, token, is_last_parameter, prompt)
+        if temp[0] == "-" or temp[0] == ".":
+            return True
+        return temp.isdigit() and temp in prompt
+
+    def _valid_flt_mid_no_dot(
+        self, token: str, is_last_parameter: bool, prompt: str
+    ) -> bool:
+        dots = 0
+        for char in token:
+            if char == "-":
+                return False
+            if char == ".":
+                dots += 1
+        if dots > 1:
+            return False
+        temp = self.generated + token
+        terminator = " " if is_last_parameter else ","
+        if len(self.generated) >= 20:
+            if token[-1] != terminator:
+                return False
+        if temp.endswith(terminator):
+            nbr = temp[:-1]
+        else:
+            nbr = temp
+        return is_number(nbr) and nbr in prompt
+
+    def _valid_flt_mid_dot(
+        self, token: str, is_last_parameter: bool, prompt: str
+    ) -> bool:
+        for char in token:
+            if char == ".":
+                return False
+            if char == "-":
+                return False
+        temp = self.generated + token
+        terminator = " " if is_last_parameter else ","
+        if len(self.generated) >= 20:
+            if token[-1] != terminator:
+                return False
+        if temp.endswith(terminator):
+            nbr = temp[:-1]
+        else:
+            nbr = temp
+        return is_number(nbr) and nbr in prompt
+
+    @staticmethod
+    def _check_dots(text: str) -> bool:
+        dots = 0
+        for char in text:
+            if char == ".":
+                dots += 1
+        return dots
+
+
+class BoolParameterGenerator(BaseModel):
+    """
+    ng = BooleanGenerator(function_names=list[str],llm=Small_LLM_Model(),llm_vocab=Vocab(),coder=Coder)
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    function_names: list[str]
+    llm_vocab: Vocab
+    coder: Coder
+    trie_vocab: Vocab = Vocab(
+        vocab={
+            0: "_",
+            1: "{",
+            2: "}",
+            3: ",",
+            4: ":",
+            5: "a",
+            6: "b",
+            7: "c",
+            8: "d",
+            9: "e",
+            10: "f",
+            11: "g",
+            12: "h",
+            13: "i",
+            14: "j",
+            15: "k",
+            16: "l",
+            17: "m",
+            18: "n",
+            19: "o",
+            20: "p",
+            21: "q",
+            22: "r",
+            23: "s",
+            24: "t",
+            25: "u",
+            26: "v",
+            27: "w",
+            28: "x",
+            29: "y",
+            30: "z",
+        }
+    )
+    trie_functions: Trie | None = None
+
+    @model_validator(mode="after")
+    def load(self) -> Self:
+        if self.trie_functions is None:
+            self.trie_functions = Trie(
+                vocab=self.trie_vocab, entries=self.function_names
+            )
+        return Self
+
+    def generate(
+        self, input_ids: list[int], is_last_parameter: bool, prompt: str
+    ) -> str:
+        """
+        paramgen.generate(input_ids, last_parameter, "function specific prompt")
+        """
+        generated = ""
+        generating = True
+        input_ids = []
+        not_allowed = []
+        prompts = f"Answer this prompt: {prompt}"
+        text = replace_space(prompts)
+        input_ids = self.llm_prompt + self.coder.encode(text)
+        print(repr(self.coder.decode(input_ids)))
+        print(type(input_ids))
+        while generating is True:
+            print(f"step, generated so far: {generated!r}", flush=True)
+            logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
+            allowed = self._allowed(generated)
+            mask = get_mask(logits, allowed, not_allowed)
+            masked = logits + mask
+            next_id = np.argmax(masked)
+            if self.trie_functions.search(generated):
+                generating = False
+            else:
+                temp_gen = generated + self.llm_vocab.vocab.get(next_id)
+                if self.trie_functions.is_prefix(temp_gen):
+                    not_allowed = []
+                    input_ids.append(next_id)
+                    generated += self.llm_vocab.vocab.get(next_id)
+                else:
+                    not_allowed.append(next_id)
         return generated
 
-    def generate(self, input_ids: list[int], is_last: bool, context: str) -> str:
-        pass
+        def _allowed(self, generated: str) -> list[int]:
+            allowed = []
+            for value in self.llm_vocab.vocab.values():
+                if self.trie_functions.is_prefix(generated + value):
+                    allowed.append(self.llm_vocab.inverted.get(value))
+                elif self.trie_functions.search(generated + value):
+                    allowed.append(self.llm_vocab.inverted.get(value))
+                else:
+                    continue
+            return allowed

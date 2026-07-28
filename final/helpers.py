@@ -53,9 +53,17 @@ def is_prefix(small: str, big: str) -> bool:
     return True
 
 
-def is_prefix_string(self, s: str, valid: dict) -> bool:
+def is_prefix_string(s: str, valid: dict) -> bool:
     prefix = 0
     for value in valid.values():
-        if self._is_prefix(s, value):
+        if is_prefix(s, value):
             prefix = 1
     return prefix == 1
+
+
+def is_number(text: str) -> bool:
+    try:
+        float(text)
+        return True
+    except ValueError:
+        return False

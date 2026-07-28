@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 
-from final.error import EncodeError, DecodeError
 from final.parsing import Path, input_parsing
 from pydantic import BaseModel, model_validator, ConfigDict
 from final.classes import Vocab, JSONraw, OutputDict
 from llm_sdk.llm_sdk import Small_LLM_Model
 from typing import Any
-from final.state import ParameterState, is_candidate_allowed
-from final.helpers import is_prefix_string, replace_space, replace_g, get_mask
+from final.helpers import replace_space, replace_g, get_mask
 from final.coder import Coder
+from final.namegen import NameGenerator
+from final.paramgen import (
+    BaseParameterGenerator,
+    StringParameterGenerator,
+    RegexParameterGenerator,
+    IntegerParameterGenerator,
+    NumberParameterGenerator,
+    BoolParameterGenerator,
+)
 import json
 import numpy as np
-# decoder = ConstrainedDecoder(path=path,llm=Small_LLM_Model(),trie_vocab={})
+# decoder = ConstrainedDecoder(path=path,llm=Small_LLM_Model())
 
 
 class ConstrainedDecoder(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    path: Path()
+    path: Path = Path()
     llm: Small_LLM_Model  # insert model name as first param, if blank default = qwen
     prompts: list[str] | None = None
     functions: list[JSONraw] | None = None
@@ -77,9 +84,6 @@ class ConstrainedDecoder(BaseModel):
 
     def run(self) -> None:
         self.output_list = []
-        # print(f"{self.param_schema=}")
-        # print(f"{self.functions=}")
-        # print(f"{self.prompts=}")
         for prompt in self.prompts:
             self._process_prompt(prompt)
             self.output_list.append(self.output)
@@ -88,19 +92,48 @@ class ConstrainedDecoder(BaseModel):
 
     def _process_prompt(self, prompt: str) -> None:
         self.output["prompt"] = prompt
-        self.output["name"] = self._generate_name(prompt)
+        namegen = NameGenerator(
+            self.function_names, self.llm_vocab, self.nl_input_ids, self.coder
+        )
+        self.output["name"] = namegen.generate(prompt)
         parameters = self.param_schema[self.output.get("name")]
         print(parameters)
         amount = len(parameters)
         i = 1
         info = (self.output.get("name"), amount)
         for key, value in parameters:
-            parameter = self._get_parameter(prompt, info, (key, value), i)
-            self.output["parameter"] = parameter
-            if i != amount:
-                self.output += " "
+            paramdict = {}
+            llm_prompt = self._prompt(info, i, prompt, value)
+            text = replace_space(llm_prompt)
+            input_ids = self.coder.encode(text)
+            if key == "regex":
+                paramgen = RegexParameterGenerator(self.llm, self.llm_vocab, self.coder)
+            elif value == "string":
+                paramgen = StringParameterGenerator(
+                    self.llm, self.llm_vocab, self.coder
+                )
+            elif value == "number":
+                paramgen = NumberParameterGenerator(
+                    self.llm, self.llm_vocab, self.coder
+                )
+            elif value == "integer":
+                paramgen = IntegerParameterGenerator(
+                    self.llm, self.llm_vocab, self.coder
+                )
+            elif value == "" or value == "NULL" or value == "null" or value is None:
+                paramgen = BaseParameterGenerator(self.llm, self.llm_vocab, self.coder)
+            elif value == "boolean":
+                paramgen = BoolParameterGenerator(
+                    ["True", "False"], self.llm, self.llm_vocab, self.coder
+                )
+            elif value == "array":
+                ...
+            elif value == "object":
+                ...
+            parameter = paramgen.generate(input_ids, (amount == i), prompt)
+            paramdict[key] = parameter
             i += 1
-        self.output += "}"
+        self.output["parameters"] = paramdict
 
     def _get_parameter(
         self, prompt: str, function: tuple[str, int], kv: tuple[str, str], count: int
@@ -227,7 +260,6 @@ class ConstrainedDecoder(BaseModel):
     def _remove_used(self, text: str) -> str:
         available = text.split(" ")
         words = self.output.split(" ")
-        print(words)
         for i in range(len(words)):
             if words[i] == '"parameters":':
                 cut = words[i:]
@@ -246,12 +278,8 @@ class ConstrainedDecoder(BaseModel):
         for word in used:
             if word in available:
                 available.remove(word)
-        print(available)
         return " ".join(available)
 
     def _output_to_json(self) -> None:
-        list_of_json = []
-        for prompt in self.output_list:
-            list_of_json.append(json.loads(prompt))
         with open("json_output.json", "w") as jfile:
-            json.dump(list_of_json, jfile, indent=2)
+            json.dump(self.output_list, jfile, indent=2)

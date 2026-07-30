@@ -1,27 +1,29 @@
 import sys
 import json
-from final.error import ParsingError
+from src.error import ParsingError
 from pydantic import BaseModel, model_validator
+from typing import Self
 
 
-class Path(BaseModel):
+class Parsing(BaseModel):
     input: str = "data/input/function_calling_tests.json"
     output: str = "data/output/function_calls.json"
     func_def: str = "data/input/functions_definition.json"
 
     @model_validator(mode="after")
-    def load(self) -> None:
+    def load(self) -> Self:
         try:
             flags = self._parse_flags()
-        except ParsingError as e:
-            print(e)
+        except (ParsingError, FileNotFoundError) as e:
+            print(f"Oops... There seems to be a problem with your input files: {e}")
             sys.exit(1)
-        if flags.get("--input"):
-            self.input = flags["--input"]
-        if flags.get("--output"):
-            self.output = flags["--output"]
-        if flags.get("--functions_definition"):
-            self.func_def = flags["--functions_definition"]
+        if flags.get("-input"):
+            self.input = flags["-input"]
+        if flags.get("-output"):
+            self.output = flags["-output"]
+        if flags.get("-functions_definition"):
+            self.func_def = flags["-functions_definition"]
+        return self
 
     def _parse_flags(self) -> dict[str, str]:
         flags = {}
@@ -32,23 +34,20 @@ class Path(BaseModel):
             arguments = sys.argv.copy()
             while len(arguments) > 1:
                 flags[arguments.pop(-1)] = arguments.pop(-1)
-        try:
-            if self._check_flags(flags):
-                return flags
-        except ParsingError as e:
-            raise ParsingError(e)
+        if self._check_flags(flags):
+            return flags
 
     @staticmethod
     def _check_flags(flags: dict[str, str]) -> bool:
-        allowed = ["--functions_definition", "--input", "--output"]
+        allowed = ["-functions_definition", "-input", "-output"]
         required = 0
         for name in flags.keys():
             if name not in allowed:
                 return False
-            if name == "--functions_definition":
+            if name == "-functions_definition":
                 required = 1
-        for flag, path in flags.values():
-            if flag != "--output":
+        for flag, path in flags.items():
+            if flag != "-output":
                 try:
                     with open(path) as f:
                         _ = json.load(f)

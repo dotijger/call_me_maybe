@@ -46,7 +46,7 @@ class DecodeError(BaseException):
         super().__init__(f"Decode Error: {msg}")
 
 
-class NoParameterDefinedError(BaseException):
+class ParameterError(BaseException):
     """Shows errors related to a parameter generator issue
 
     Args:

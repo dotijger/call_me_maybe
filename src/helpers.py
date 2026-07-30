@@ -1,11 +1,53 @@
 import numpy as np
 
 
+def extract_outside(prompt: str, terminator: str) -> list[str]:
+    outsides = []
+    inside = False
+    current = ""
+    for char in prompt:
+        if char == terminator:
+            inside = not inside
+            outsides.append(current)
+            current = ""
+        elif not inside:
+            current += char
+    outsides.append(current)
+    outside = " ".join(outsides)
+    return outside.split()
+
+
+def extract_substrings(prompt: str) -> list[str]:
+    terminator = "'" if prompt.count("'") >= 2 and prompt.count("'") % 2 == 0 else '"'
+    substrings = []
+    start = prompt.find(terminator)
+    while start != -1:
+        end = prompt.find(terminator, start + 1)
+        if end == -1:
+            break
+        substrings.append(prompt[start + 1 : end])
+        start = prompt.find(terminator, end + 1)
+    outsides = extract_outside(prompt, terminator)
+    return substrings + outsides
+
+
+def extract_allowed_substrings(
+    substrings: list[str], paramdict: dict[str, str]
+) -> list[str]:
+    allowed = []
+    for string in substrings:
+        if string not in paramdict.values():
+            allowed.append(string)
+    return allowed
+
+
 def replace_space(text: str) -> str:
     return text.replace(" ", "Ġ")
 
 
 def replace_g(text: str) -> str:
+    if len(text) == 0:
+        return ""
     if text[0] == "Ġ":
         return text[1:].replace("Ġ", " ")
     return text.replace("Ġ", " ")

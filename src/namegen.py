@@ -1,8 +1,8 @@
 from pydantic import BaseModel, model_validator, ConfigDict
-from final.classes import Trie, Vocab
+from src.classes import Trie, Vocab
 from llm_sdk.llm_sdk import Small_LLM_Model
-from final.helpers import replace_space, get_mask
-from final.coder import Coder
+from src.helpers import replace_space, get_mask
+from src.coder import Coder
 from typing import Self
 import numpy as np
 
@@ -60,7 +60,7 @@ class NameGenerator(BaseModel):
             self.trie_functions = Trie(
                 vocab=self.trie_vocab, entries=self.function_names
             )
-        return Self
+        return self
 
     def generate(self, llm: Small_LLM_Model, prompt: str) -> str:
         """
@@ -73,10 +73,8 @@ class NameGenerator(BaseModel):
         prompts = f"Answer this prompt: {prompt}"
         text = replace_space(prompts)
         input_ids = self.llm_prompt + self.coder.encode(text)
-        print(repr(self.coder.decode(input_ids)))
-        print(type(input_ids))
         while generating is True:
-            print(f"step, generated so far: {generated!r}", flush=True)
+            print(f"Generating: {generated!r}", flush=True)
             logits = np.array(llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(generated)
             mask = get_mask(logits, allowed, not_allowed)
@@ -94,13 +92,13 @@ class NameGenerator(BaseModel):
                     not_allowed.append(next_id)
         return generated
 
-        def _allowed(self, generated: str) -> list[int]:
-            allowed = []
-            for value in self.llm_vocab.vocab.values():
-                if self.trie_functions.is_prefix(generated + value):
-                    allowed.append(self.llm_vocab.inverted.get(value))
-                elif self.trie_functions.search(generated + value):
-                    allowed.append(self.llm_vocab.inverted.get(value))
-                else:
-                    continue
-            return allowed
+    def _allowed(self, generated: str) -> list[int]:
+        allowed = []
+        for value in self.llm_vocab.vocab.values():
+            if self.trie_functions.is_prefix(generated + value):
+                allowed.append(self.llm_vocab.inverted.get(value))
+            elif self.trie_functions.search(generated + value):
+                allowed.append(self.llm_vocab.inverted.get(value))
+            else:
+                continue
+        return allowed

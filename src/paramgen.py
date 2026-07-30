@@ -1,9 +1,15 @@
 from pydantic import BaseModel, model_validator, ConfigDict
 from llm_sdk.llm_sdk import Small_LLM_Model
-from final.classes import Vocab, Trie
-from final.coder import Coder
+from src.classes import Vocab, Trie
+from src.coder import Coder
 import numpy as np
-from final.helpers import get_mask, replace_g, is_number, replace_space
+from src.helpers import (
+    get_mask,
+    replace_g,
+    is_number,
+    replace_space,
+    extract_substrings,
+)
 from typing import Self
 
 
@@ -40,20 +46,19 @@ class StringParameterGenerator(BaseParameterGenerator):
     """
 
     def generate(
-        self,
-        input_ids: list[int],
-        is_last_parameter: bool,
-        prompt: str,
+        self, input_ids: list[int], is_last_parameter: bool, prompt: str
     ) -> str:
         self.generated = '"'
         generating = True
         terminator = "}" if is_last_parameter else ","
         end = f'"{terminator}'
         input_ids += self.coder.encode('"')
+        substrings = extract_substrings(prompt)
+        # print(f"allowed: {substrings=}")
         while generating is True:
-            print(f"step, generated so far: {self.generated!r}", flush=True)
+            print(f"{self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
-            allowed = self._allowed(is_last_parameter, prompt)
+            allowed = self._allowed(is_last_parameter, substrings)
             if not allowed:
                 generating = False
                 break
@@ -65,51 +70,71 @@ class StringParameterGenerator(BaseParameterGenerator):
             else:
                 self.generated += self.llm_vocab.vocab.get(next_id)
                 input_ids.append(next_id)
+                content = replace_g(self.generated[1:])
+                if self._completed(content, substrings):
+                    generating = False
         self.generated = replace_g(self.generated)
-        self.generated -= end
+        self.generated = self.generated.rstrip(end)
+        self.generated = self.generated.lstrip('"')
         return self.generated
 
-    def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
+    def _allowed(self, is_last_parameter: bool, substrings: list[str]) -> list[int]:
         allowed = []
         if self.generated == "":
             for value in self.llm_vocab.vocab.values():
-                if self._valid_regex_start(value, is_last_parameter, context):
+                if self._valid_string_start(value, is_last_parameter, substrings):
                     allowed.append(self.llm_vocab.inverted.get(value))
         else:
             for value in self.llm_vocab.vocab.values():
-                if self._valid_regex_mid(value, is_last_parameter, context):
+                if self._valid_string_mid(value, is_last_parameter, substrings):
                     allowed.append(self.llm_vocab.inverted.get(value))
         return allowed
 
     def _valid_string_start(
-        self, token: str, is_last_parameter: bool, prompt: str
+        self,
+        token: str,
+        is_last_parameter: bool,
+        substrings: list[str],
     ) -> bool:
         temp = self.generated + token
+        if token == '"':
+            return True
         if temp[0] != '"':
             return False
         if len(temp) > 1:
-            return self._valid_regex_mid(token, is_last_parameter, prompt)
+            return self._valid_string_mid(token, is_last_parameter, substrings)
         return temp == '"'
 
     def _valid_string_mid(
-        self, token: str, is_last_parameter: bool, prompt: str
+        self,
+        token: str,
+        is_last_parameter: bool,
+        substrings: list[str],
     ) -> bool:
-        # allowed = prompt.split(" ")
         temp = self.generated + token
         terminator = "}" if is_last_parameter else ","
         end = f'"{terminator}'
-        # if len(generated) >= max(map(len, allowed)):
-        # if not token.endswith(end):
-        # return False
         if temp.endswith(end):
-            content = temp[1 : -len(end)]
-            return content in prompt
+            content = replace_g(temp[1 : -len(end)])
+            return self._completed(content, substrings)
         elif temp[1:].endswith('"'):
-            content = temp[1:-1]
-            return content in prompt
+            content = replace_g(temp[1:-1])
+            return self._completed(content, substrings)
         else:
-            content = temp[1:]
-        return content in prompt
+            content = replace_g(temp[1:])
+        return any(s.startswith(content) for s in substrings)
+
+    @staticmethod
+    def _completed(content: str, substrings: list[str]) -> bool:
+        """
+        Checks whether there is a longer string in substrings that we are looking for.
+        """
+        if content not in substrings:
+            return False
+        for s in substrings:
+            if s != content and s.startswith(content):
+                return False
+        return True
 
     # return any(s.startswith(content) for s in allowed)
 
@@ -131,7 +156,7 @@ class RegexParameterGenerator(BaseParameterGenerator):
         end = f'"{terminator}'
         input_ids += self.coder.encode('"')
         while generating is True:
-            print(f"step, generated so far: {self.generated!r}", flush=True)
+            print(f"{self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -146,7 +171,8 @@ class RegexParameterGenerator(BaseParameterGenerator):
                 self.generated += self.llm_vocab.vocab.get(next_id)
                 input_ids.append(next_id)
         self.generated = replace_g(self.generated)
-        self.generated -= end
+        self.generated = self.generated.rstrip(end)
+        self.generated = self.generated.lstrip('"')
         return self.generated
 
     def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
@@ -200,7 +226,7 @@ class IntegerParameterGenerator(BaseParameterGenerator):
         generating = True
         terminator = " " if is_last_parameter else ","
         while generating is True:
-            print(f"step, generated so far: {self.generated!r}", flush=True)
+            print(f"{self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -214,7 +240,7 @@ class IntegerParameterGenerator(BaseParameterGenerator):
             else:
                 self.generated += self.llm_vocab.vocab.get(next_id)
                 input_ids.append(next_id)
-        self.generated -= terminator
+        self.generated = self.generated.rstrip(terminator)
         return self.generated
 
     def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
@@ -231,10 +257,10 @@ class IntegerParameterGenerator(BaseParameterGenerator):
 
     def _valid_int_start(
         self, token: str, is_last_parameter: bool, prompt: str
-    ) -> list[int]:
+    ) -> bool:
         temp = self.generated + token
         if len(temp) > 1:
-            return self._valid_int_mid(self.generated, token, is_last_parameter, prompt)
+            return self._valid_int_mid(token, is_last_parameter, prompt)
         if temp[0] == "-":
             return True
         if temp[0] == ".":
@@ -271,7 +297,7 @@ class NumberParameterGenerator(BaseParameterGenerator):
         generating = True
         terminator = " " if is_last_parameter else ","
         while generating is True:
-            print(f"step, generated so far: {self.generated!r}", flush=True)
+            print(f"{self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -285,7 +311,7 @@ class NumberParameterGenerator(BaseParameterGenerator):
             else:
                 self.generated += self.llm_vocab.vocab.get(next_id)
                 input_ids.append(next_id)
-        self.generated -= terminator
+        self.generated = self.generated.rstrip(terminator)
         return self.generated
 
     def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
@@ -310,7 +336,7 @@ class NumberParameterGenerator(BaseParameterGenerator):
     ) -> bool:
         temp = self.generated + token
         if len(temp) > 1:
-            return self._valid_int_mid(self.generated, token, is_last_parameter, prompt)
+            return self._valid_flt_mid_no_dot(token, is_last_parameter, prompt)
         if temp[0] == "-" or temp[0] == ".":
             return True
         return temp.isdigit() and temp in prompt

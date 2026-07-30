@@ -1,7 +1,7 @@
 from pydantic import BaseModel
-from final.classes import Vocab
-from final.error import DecodeError, EncodeError
-from final.helpers import is_prefix_string
+from src.classes import Vocab
+from src.error import DecodeError, EncodeError
+from src.helpers import is_prefix_string
 
 
 class Coder(BaseModel):

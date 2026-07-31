@@ -1,5 +1,20 @@
 [
   {
+    "name": "fn_reverse_string_case",
+    "description": "Reverse a string and return the reversed result.",
+    "parameters": {
+      "s": {
+        "type": "string"
+      },
+      "case_sensitive": {
+        "type": "boolean"
+      }
+    },
+    "returns": {
+      "type": "string"
+    }
+  },
+  {
     "name": "fn_add_numbers",
     "description": "Add two numbers together and return their sum.",
     "parameters": {

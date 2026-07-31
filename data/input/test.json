@@ -1,5 +1,8 @@
 [
   {
+    "prompt": "Reverse the string 'Hello' but ignore case"
+  },
+  {
     "prompt": "What is the sum of 2 and 3?"
   },
   {

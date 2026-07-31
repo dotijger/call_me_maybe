@@ -159,6 +159,11 @@ class ConstrainedDecoder(BaseModel):
                 else:
                     tmp = float(paramdict[key])
                 paramdict[key] = tmp
+            elif value == "boolean":
+                if paramdict[key] == "True":
+                    paramdict[key] = True
+                else:
+                    paramdict[key] = False
             else:
                 continue
         print(f"\nParameters extracted: {paramdict}!\n")

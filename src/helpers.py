@@ -18,14 +18,16 @@ def extract_outside(prompt: str, terminator: str) -> list[str]:
 
 
 def extract_substrings(prompt: str) -> list[str]:
-    terminator = "'" if prompt.count("'") >= 2 and prompt.count("'") % 2 == 0 else '"'
+    terminator = (
+        "'" if prompt.count("'") >= 2 and prompt.count("'") % 2 == 0 else '"'
+    )
     substrings = []
     start = prompt.find(terminator)
     while start != -1:
         end = prompt.find(terminator, start + 1)
         if end == -1:
             break
-        substrings.append(prompt[start + 1 : end])
+        substrings.append(prompt[start+1:end])
         start = prompt.find(terminator, end + 1)
     outsides = extract_outside(prompt, terminator)
     return substrings + outsides
@@ -54,15 +56,18 @@ def replace_g(text: str) -> str:
 
 
 def get_mask(
-    logits: list[float], ids: list[int], non: list[int] | None
+    logits: np.typing.ArrayLike, ids: list[int], non: list[int] | None
 ) -> np.typing.ArrayLike:
     # an id is also its 'index' in the vocabulary / the key
-    mask = np.full(len(logits), -np.inf)
+    logits_arr = np.asarray(logits)
+    mask = np.full(len(logits_arr), -np.inf)
     if non is None:
         for id in ids:
+            id = int(id)
             mask[id] = 0
         return mask
     for id in ids:
+        id = int(id)
         if id not in non:
             mask[id] = 0
     return mask
@@ -77,7 +82,7 @@ def get_substring(text: str) -> list[str]:
             end = text.find(char, i + 1)
             if end == -1:
                 break
-            substrings.append(text[i + 1 : end])
+            substrings.append(text[i+1:end])
             i = end + 1
         else:
             i += 1
@@ -95,7 +100,7 @@ def is_prefix(small: str, big: str) -> bool:
     return True
 
 
-def is_prefix_string(s: str, valid: dict) -> bool:
+def is_prefix_string(s: str, valid: dict[int, str]) -> bool:
     prefix = 0
     for value in valid.values():
         if is_prefix(s, value):

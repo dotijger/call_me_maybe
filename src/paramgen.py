@@ -1,5 +1,6 @@
 from pydantic import BaseModel, model_validator, ConfigDict
 from llm_sdk.llm_sdk import Small_LLM_Model
+from src.error import VocabError
 from src.classes import Vocab, Trie
 from src.coder import Coder
 import numpy as np
@@ -15,34 +16,26 @@ from typing import Self
 
 class BaseParameterGenerator(BaseModel):
     """
-    gen = BaseParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
+    gen =
+    BaseParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     llm: Small_LLM_Model
     llm_vocab: Vocab
     coder: Coder
-    generated: str | None = None
+    generated: str = ""
 
-    # parameter prompt generator
-    def prompt(self, info: tuple[str, int], count: int, prompt: str, kind: str) -> str:
-        parameters = self.param_schema[info[0]]
-        param_to_extract = parameters[count - 1][0]
-        prompt = f"User prompt: {prompt} \
-        Function being called: {info[0]} \
-        Parameter to extract: {param_to_extract}. \
-        Extract the value of {param_to_extract} from the user prompt. \
-        Copy the {kind} parameter from the prompt: \
-        {prompt}. {param_to_extract} = "
-        return prompt
-
-    def generate(self, input_ids: list[int], is_last: bool, context: str) -> str:
+    def generate(
+        self, input_ids: list[int], is_last: bool, context: str
+    ) -> str:
         return "NULL"
 
 
 class StringParameterGenerator(BaseParameterGenerator):
     """
-    gen = StringParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
+    gen =
+    StringParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     def generate(
@@ -56,7 +49,7 @@ class StringParameterGenerator(BaseParameterGenerator):
         substrings = extract_substrings(prompt)
         # print(f"allowed: {substrings=}")
         while generating is True:
-            print(f"{self.generated!r}", flush=True)
+            print(f"Generating: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, substrings)
             if not allowed:
@@ -65,11 +58,17 @@ class StringParameterGenerator(BaseParameterGenerator):
             mask = get_mask(logits, allowed, None)
             masked = logits + mask
             next_id = np.argmax(masked)
-            if self.generated.endswith(end):
+            if self.generated.endswith(end) or len(self.generated) > 100:
                 generating = False
             else:
-                self.generated += self.llm_vocab.vocab.get(next_id)
-                input_ids.append(next_id)
+                temp = self.llm_vocab.vocab.get(int(next_id))
+                if temp is None:
+                    raise VocabError(
+                        "ID could not be found in the LLM vocab,\
+                         generation aborting."
+                    )
+                self.generated += temp
+                input_ids.append(int(next_id))
                 content = replace_g(self.generated[1:])
                 if self._completed(content, substrings):
                     generating = False
@@ -78,16 +77,26 @@ class StringParameterGenerator(BaseParameterGenerator):
         self.generated = self.generated.lstrip('"')
         return self.generated
 
-    def _allowed(self, is_last_parameter: bool, substrings: list[str]) -> list[int]:
+    def _allowed(
+        self, is_last_parameter: bool, substrings: list[str]
+    ) -> list[int]:
         allowed = []
         if self.generated == "":
             for value in self.llm_vocab.vocab.values():
-                if self._valid_string_start(value, is_last_parameter, substrings):
-                    allowed.append(self.llm_vocab.inverted.get(value))
+                if self._valid_string_start(
+                    value, is_last_parameter, substrings
+                ):
+                    id = self.llm_vocab.inverted.get(value)
+                    if id is not None:
+                        allowed.append(id)
         else:
             for value in self.llm_vocab.vocab.values():
-                if self._valid_string_mid(value, is_last_parameter, substrings):
-                    allowed.append(self.llm_vocab.inverted.get(value))
+                if self._valid_string_mid(
+                    value, is_last_parameter, substrings
+                ):
+                    id = self.llm_vocab.inverted.get(value)
+                    if id is not None:
+                        allowed.append(id)
         return allowed
 
     def _valid_string_start(
@@ -115,7 +124,8 @@ class StringParameterGenerator(BaseParameterGenerator):
         terminator = "}" if is_last_parameter else ","
         end = f'"{terminator}'
         if temp.endswith(end):
-            content = replace_g(temp[1 : -len(end)])
+            length = len(end)
+            content = replace_g(temp[1:-length])
             return self._completed(content, substrings)
         elif temp[1:].endswith('"'):
             content = replace_g(temp[1:-1])
@@ -127,7 +137,8 @@ class StringParameterGenerator(BaseParameterGenerator):
     @staticmethod
     def _completed(content: str, substrings: list[str]) -> bool:
         """
-        Checks whether there is a longer string in substrings that we are looking for.
+        Checks whether there is a longer string
+        in substrings that we are looking for.
         """
         if content not in substrings:
             return False
@@ -141,7 +152,8 @@ class StringParameterGenerator(BaseParameterGenerator):
 
 class RegexParameterGenerator(BaseParameterGenerator):
     """
-    gen = RegexParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
+    gen =
+    RegexParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     def generate(
@@ -156,7 +168,7 @@ class RegexParameterGenerator(BaseParameterGenerator):
         end = f'"{terminator}'
         input_ids += self.coder.encode('"')
         while generating is True:
-            print(f"{self.generated!r}", flush=True)
+            print(f"Generating: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -168,8 +180,14 @@ class RegexParameterGenerator(BaseParameterGenerator):
             if self.generated.endswith(end):
                 generating = False
             else:
-                self.generated += self.llm_vocab.vocab.get(next_id)
-                input_ids.append(next_id)
+                temp = self.llm_vocab.vocab.get(int(next_id))
+                if temp is None:
+                    raise VocabError(
+                        "ID could not be found in the LLM vocab, \
+                            generation aborting."
+                    )
+                self.generated += temp
+                input_ids.append(int(next_id))
         self.generated = replace_g(self.generated)
         self.generated = self.generated.rstrip(end)
         self.generated = self.generated.lstrip('"')
@@ -180,11 +198,15 @@ class RegexParameterGenerator(BaseParameterGenerator):
         if self.generated == "":
             for value in self.llm_vocab.vocab.values():
                 if self._valid_regex_start(value, is_last_parameter, context):
-                    allowed.append(self.llm_vocab.inverted.get(value))
+                    id = self.llm_vocab.inverted.get(value)
+                    if id is not None:
+                        allowed.append(id)
         else:
             for value in self.llm_vocab.vocab.values():
                 if self._valid_regex_mid(value, is_last_parameter, context):
-                    allowed.append(self.llm_vocab.inverted.get(value))
+                    id = self.llm_vocab.inverted.get(value)
+                    if id is not None:
+                        allowed.append(id)
         return allowed
 
     def _valid_regex_start(
@@ -204,7 +226,8 @@ class RegexParameterGenerator(BaseParameterGenerator):
         terminator = "}" if is_last_parameter else ","
         end = f'"{terminator}'
         if temp.endswith(end):
-            content = temp[1 : -len(end)]
+            length = len(end)
+            content = temp[1:-length]
             return content.isalpha()
         elif temp[1:].endswith('"'):
             content = temp[1:-1]
@@ -216,7 +239,8 @@ class RegexParameterGenerator(BaseParameterGenerator):
 
 class IntegerParameterGenerator(BaseParameterGenerator):
     """
-    gen = IntegerParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
+    gen =
+    IntegerParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     def generate(
@@ -226,7 +250,7 @@ class IntegerParameterGenerator(BaseParameterGenerator):
         generating = True
         terminator = " " if is_last_parameter else ","
         while generating is True:
-            print(f"{self.generated!r}", flush=True)
+            print(f"Generating: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -238,8 +262,14 @@ class IntegerParameterGenerator(BaseParameterGenerator):
             if self.generated.endswith(terminator) or len(self.generated) > 20:
                 generating = False
             else:
-                self.generated += self.llm_vocab.vocab.get(next_id)
-                input_ids.append(next_id)
+                temp = self.llm_vocab.vocab.get(int(next_id))
+                if temp is None:
+                    raise VocabError(
+                        "ID could not be found in the LLM vocab, \
+                        generation aborting."
+                    )
+                self.generated += temp
+                input_ids.append(int(next_id))
         self.generated = self.generated.rstrip(terminator)
         return self.generated
 
@@ -248,11 +278,15 @@ class IntegerParameterGenerator(BaseParameterGenerator):
         if self.generated == "":
             for value in self.llm_vocab.vocab.values():
                 if self._valid_int_start(value, is_last_parameter, context):
-                    allowed.append(self.llm_vocab.inverted.get(value))
+                    id = self.llm_vocab.inverted.get(value)
+                    if id is not None:
+                        allowed.append(id)
         else:
             for value in self.llm_vocab.vocab.values():
                 if self._valid_int_mid(value, is_last_parameter, context):
-                    allowed.append(self.llm_vocab.inverted.get(value))
+                    id = self.llm_vocab.inverted.get(value)
+                    if id is not None:
+                        allowed.append(id)
         return allowed
 
     def _valid_int_start(
@@ -267,7 +301,9 @@ class IntegerParameterGenerator(BaseParameterGenerator):
             return False
         return temp.isdigit() and temp in prompt
 
-    def _valid_int_mid(self, token: str, is_last_parameter: bool, prompt: str) -> bool:
+    def _valid_int_mid(
+        self, token: str, is_last_parameter: bool, prompt: str
+    ) -> bool:
         for char in token:
             if char == ".":
                 return False
@@ -287,7 +323,8 @@ class IntegerParameterGenerator(BaseParameterGenerator):
 
 class NumberParameterGenerator(BaseParameterGenerator):
     """
-    gen = NumberParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
+    gen =
+    NumberParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     def generate(
@@ -297,7 +334,7 @@ class NumberParameterGenerator(BaseParameterGenerator):
         generating = True
         terminator = " " if is_last_parameter else ","
         while generating is True:
-            print(f"{self.generated!r}", flush=True)
+            print(f"Generating: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -309,8 +346,14 @@ class NumberParameterGenerator(BaseParameterGenerator):
             if self.generated.endswith(terminator) or len(self.generated) > 20:
                 generating = False
             else:
-                self.generated += self.llm_vocab.vocab.get(next_id)
-                input_ids.append(next_id)
+                temp = self.llm_vocab.vocab.get(int(next_id))
+                if temp is None:
+                    raise VocabError(
+                        "ID could not be found in the LLM vocab, \
+                        generation aborting."
+                    )
+                self.generated += temp
+                input_ids.append(int(next_id))
         self.generated = self.generated.rstrip(terminator)
         return self.generated
 
@@ -319,16 +362,26 @@ class NumberParameterGenerator(BaseParameterGenerator):
         if self.generated == "":
             for value in self.llm_vocab.vocab.values():
                 if self._valid_flt_start(value, is_last_parameter, context):
-                    allowed.append(self.llm_vocab.inverted.get(value))
+                    id = self.llm_vocab.inverted.get(value)
+                    if id is not None:
+                        allowed.append(id)
         else:
             if self._check_dots(self.generated):
                 for value in self.llm_vocab.vocab.values():
-                    if self._valid_flt_mid_dot(value, is_last_parameter, context):
-                        allowed.append(self.llm_vocab.inverted.get(value))
+                    if self._valid_flt_mid_dot(
+                        value, is_last_parameter, context
+                    ):
+                        id = self.llm_vocab.inverted.get(value)
+                        if id is not None:
+                            allowed.append(id)
             else:
                 for value in self.llm_vocab.vocab.values():
-                    if self._valid_flt_mid_no_dot(value, is_last_parameter, context):
-                        allowed.append(self.llm_vocab.inverted.get(value))
+                    if self._valid_flt_mid_no_dot(
+                        value, is_last_parameter, context
+                    ):
+                        id = self.llm_vocab.inverted.get(value)
+                        if id is not None:
+                            allowed.append(id)
         return allowed
 
     def _valid_flt_start(
@@ -388,12 +441,17 @@ class NumberParameterGenerator(BaseParameterGenerator):
         for char in text:
             if char == ".":
                 dots += 1
-        return dots
+        return dots != 0
 
 
 class BoolParameterGenerator(BaseModel):
     """
-    ng = BooleanGenerator(function_names=list[str],llm=Small_LLM_Model(),llm_vocab=Vocab(),coder=Coder)
+    ng =
+    BooleanGenerator(
+    function_names=list[str],
+    llm=Small_LLM_Model(),
+    llm_vocab=Vocab(),coder=Coder
+    )
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -443,49 +501,64 @@ class BoolParameterGenerator(BaseModel):
             self.trie_functions = Trie(
                 vocab=self.trie_vocab, entries=self.function_names
             )
-        return Self
+        return self
+
+    @property
+    def trie_entries(self) -> Trie:
+        assert self.trie_functions is not None
+        return self.trie_functions
+
+    def _allowed(self, generated: str) -> list[int]:
+        allowed = []
+        for value in self.llm_vocab.vocab.values():
+            if self.trie_entries.is_prefix(generated + value):
+                id = self.llm_vocab.inverted.get(value)
+                if id is not None:
+                    allowed.append(id)
+            elif self.trie_entries.search(generated + value):
+                id = self.llm_vocab.inverted.get(value)
+                if id is not None:
+                    allowed.append(id)
+            else:
+                continue
+        return allowed
 
     def generate(
-        self, input_ids: list[int], is_last_parameter: bool, prompt: str
+        self, llm: Small_LLM_Model, llm_prompt: list[int], prompt: str
     ) -> str:
         """
-        paramgen.generate(input_ids, last_parameter, "function specific prompt")
+        paramgen.generate(
+        input_ids, last_parameter, "function specific prompt"
+        )
         """
         generated = ""
         generating = True
         input_ids = []
-        not_allowed = []
+        not_allowed: list[int] = []
         prompts = f"Answer this prompt: {prompt}"
         text = replace_space(prompts)
-        input_ids = self.llm_prompt + self.coder.encode(text)
-        print(repr(self.coder.decode(input_ids)))
-        print(type(input_ids))
+        input_ids = llm_prompt + self.coder.encode(text)
         while generating is True:
-            print(f"step, generated so far: {generated!r}", flush=True)
-            logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
+            print(f"Generating: {generated!r}", flush=True)
+            logits = np.array(llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(generated)
             mask = get_mask(logits, allowed, not_allowed)
             masked = logits + mask
             next_id = np.argmax(masked)
-            if self.trie_functions.search(generated):
+            if self.trie_entries.search(generated):
                 generating = False
             else:
-                temp_gen = generated + self.llm_vocab.vocab.get(next_id)
-                if self.trie_functions.is_prefix(temp_gen):
+                temp = self.llm_vocab.vocab.get(int(next_id))
+                if temp is None:
+                    raise VocabError(
+                        "ID could not be found in the LLM vocab, \
+                        generation aborting."
+                    )
+                temp_gen = generated + temp
+                if self.trie_entries.is_prefix(temp_gen):
                     not_allowed = []
-                    input_ids.append(next_id)
-                    generated += self.llm_vocab.vocab.get(next_id)
+                    input_ids.append(int(next_id))
+                    generated += temp
                 else:
-                    not_allowed.append(next_id)
+                    not_allowed.append(int(next_id))
         return generated
-
-        def _allowed(self, generated: str) -> list[int]:
-            allowed = []
-            for value in self.llm_vocab.vocab.values():
-                if self.trie_functions.is_prefix(generated + value):
-                    allowed.append(self.llm_vocab.inverted.get(value))
-                elif self.trie_functions.search(generated + value):
-                    allowed.append(self.llm_vocab.inverted.get(value))
-                else:
-                    continue
-            return allowed

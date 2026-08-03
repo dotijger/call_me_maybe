@@ -18,7 +18,7 @@ class Coder(BaseModel):
 
     def encode(self, string: str) -> list[int]:
         ids = []
-        possible_ids = []
+        possible_ids: list[int] = []
         tokenized = ""
         i = 0
         sub = string[i]
@@ -42,7 +42,9 @@ class Coder(BaseModel):
                 longest = self._find_longest_match(possible_ids)
                 ids.append(longest)
                 possible_ids = []
-                tokenized += self.llm_vocab.vocab.get(longest)
+                token = self.llm_vocab.vocab.get(longest)
+                if token is not None:
+                    tokenized += token
                 if tokenized == string:
                     return ids
                 i = string.find(tokenized) + len(tokenized)
@@ -64,7 +66,13 @@ class Coder(BaseModel):
 
     def _find_match(self, string: str) -> int:
         id = -1
-        for i in range(self.llm_vocab.size):
+        vocab_size = self.llm_vocab.size
+        if vocab_size is None:
+            raise EncodeError(
+                f"Vocab size returned 'None' during \
+                find_match with encoding {string}."
+            )
+        for i in range(vocab_size):
             if self.llm_vocab.vocab.get(i) == string:
                 id = i
         return id
@@ -73,7 +81,9 @@ class Coder(BaseModel):
         max = 0
         longest = -1
         for id in ids:
-            if len(self.llm_vocab.vocab.get(id)) > max:
-                max = len(self.llm_vocab.vocab.get(id))
-                longest = id
+            token = self.llm_vocab.vocab.get(id)
+            if token is not None:
+                if len(token) > max:
+                    max = len(token)
+                    longest = id
         return longest

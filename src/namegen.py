@@ -2,6 +2,7 @@ from pydantic import BaseModel, model_validator, ConfigDict
 from src.classes import Trie, Vocab
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.helpers import replace_space, get_mask
+from src.error import VocabError
 from src.coder import Coder
 from typing import Self
 import numpy as np
@@ -9,7 +10,11 @@ import numpy as np
 
 class NameGenerator(BaseModel):
     """
-    ng = NameGenerator(function_names=list[str],llm_vocab=Vocab(),llm_prompt=str,coder=Coder)
+    ng =
+    NameGenerator(function_names=list[str],
+    llm_vocab=Vocab(),
+    llm_prompt=str,
+    coder=Coder)
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -62,6 +67,11 @@ class NameGenerator(BaseModel):
             )
         return self
 
+    @property
+    def trie_entries(self) -> Trie:
+        assert self.trie_functions is not None
+        return self.trie_functions
+
     def generate(self, llm: Small_LLM_Model, prompt: str) -> str:
         """
         namegen.generate(llm_model, "function specific prompt")
@@ -69,7 +79,7 @@ class NameGenerator(BaseModel):
         generated = ""
         generating = True
         input_ids = []
-        not_allowed = []
+        not_allowed: list[int] = []
         prompts = f"Answer this prompt: {prompt}"
         text = replace_space(prompts)
         input_ids = self.llm_prompt + self.coder.encode(text)
@@ -80,25 +90,35 @@ class NameGenerator(BaseModel):
             mask = get_mask(logits, allowed, not_allowed)
             masked = logits + mask
             next_id = np.argmax(masked)
-            if self.trie_functions.search(generated):
+            if self.trie_entries.search(generated):
                 generating = False
             else:
-                temp_gen = generated + self.llm_vocab.vocab.get(next_id)
-                if self.trie_functions.is_prefix(temp_gen):
+                temp = self.llm_vocab.vocab.get(int(next_id))
+                if temp is None:
+                    raise VocabError(
+                        "ID could not be found in the LLM vocab,\
+                         generation aborting."
+                    )
+                temp_gen = generated + temp
+                if self.trie_entries.is_prefix(temp_gen):
                     not_allowed = []
-                    input_ids.append(next_id)
-                    generated += self.llm_vocab.vocab.get(next_id)
+                    input_ids.append(int(next_id))
+                    generated += temp
                 else:
-                    not_allowed.append(next_id)
+                    not_allowed.append(int(next_id))
         return generated
 
     def _allowed(self, generated: str) -> list[int]:
         allowed = []
         for value in self.llm_vocab.vocab.values():
-            if self.trie_functions.is_prefix(generated + value):
-                allowed.append(self.llm_vocab.inverted.get(value))
-            elif self.trie_functions.search(generated + value):
-                allowed.append(self.llm_vocab.inverted.get(value))
+            if self.trie_entries.is_prefix(generated + value):
+                id = self.llm_vocab.inverted.get(value)
+                if id is not None:
+                    allowed.append(id)
+            elif self.trie_entries.search(generated + value):
+                id = self.llm_vocab.inverted.get(value)
+                if id is not None:
+                    allowed.append(id)
             else:
                 continue
         return allowed

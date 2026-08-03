@@ -2,7 +2,8 @@ MYPY_FLAGS= --warn-return-any \
 						--warn-unused-ignore \
 						--ignore-missing-imports \
 						--disallow-untyped-defs \
-						--check-untyped-defs
+						--check-untyped-defs \
+						--explicit-package-bases
 SRC_DIR= src
 FD_DIR= data/input/functions_definition.json
 
@@ -19,14 +20,15 @@ debug:
 	uv run python3 -m pdb $(SRC_DIR) -functions_definition $(FD_DIR)
 
 clean:
-	rm -rf __pycache__ src/__pycache__
+	find . -type d -name "__pycache__" -exec rm -rf {} +
+	rm -rf .mypy_cache
 
 lint:
-	flake8 .
-	mypy . $(MYPY_FLAGS)
+	uv run flake8 src
+	uv run mypy src $(MYPY_FLAGS)
 
 lint-strict:
-	flake8
-	mypy . --strict
+	uv run flake8 src
+	uv run mypy src --strict --explicit-package-bases
 
 

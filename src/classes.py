@@ -1,5 +1,27 @@
 from pydantic import BaseModel, model_validator
+from src.error import TrieError
 from typing import Self, TypedDict, Any
+from enum import Enum
+
+
+class Color(Enum):
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    LIGHT_GRAY = "\033[37m"
+    DARK_GRAY = "\033[90m"
+    BRIGHT_RED = "\033[91m"
+    BRIGHT_GREEN = "\033[92m"
+    BRIGHT_YELLOW = "\033[93m"
+    BRIGHT_BLUE = "\033[94m"
+    BRIGHT_MAGENTA = "\033[95m"
+    BRIGHT_CYAN = "\033[96m"
+    WHITE = "\033[97m"
+    RESET = "\033[0m"
 
 
 class Vocab(BaseModel):
@@ -23,11 +45,11 @@ class Vocab(BaseModel):
 
 class TrieNode(BaseModel):
     vocab: Vocab
-    children: list["TrieNode | None"]
+    children: list["TrieNode | None"] = []
     is_end_of_word: bool = False
 
     @model_validator(mode="after")
-    def children(self) -> Self:
+    def setup_children(self) -> Self:
         self.children = [None] * len(self.vocab.vocab.items())
         return self
 
@@ -38,44 +60,59 @@ class Trie(BaseModel):
     entries: list[str]
 
     @model_validator(mode="after")
-    def init(self) -> Self:
+    def build_trie(self) -> Self:
         self.root = TrieNode(vocab=self.vocab)
         for f in self.entries:
             self.insert(f)
         return self
 
+    @property
+    def trie_root(self) -> TrieNode:
+        assert self.root is not None
+        return self.root
+
     # method to insert a key into the Trie
     def insert(self, key: str) -> None:
-        current = self.root
-        for char in key:
-            index = self.vocab.inverted.get(char)
-            if current.children[index] is None:
-                current.children[index] = TrieNode(vocab=self.vocab)
-            current = current.children[index]
-        current.is_end_of_word = True
+        if self.root is not None:
+            current = self.trie_root
+            for char in key:
+                index = self.vocab.inverted.get(char)
+                if index is None:
+                    raise TrieError(
+                        f"TrieVocab insufficient for \
+                        string {key}, {char} not found."
+                    )
+                next = current.children[index]
+                if next is None:
+                    next = TrieNode(vocab=self.vocab)
+                    current.children[index] = next
+                current = next
+            current.is_end_of_word = True
 
     # method to search a key in the trie
     def search(self, key: str) -> bool:
-        current = self.root
+        current = self.trie_root
         for char in key:
             index = self.vocab.inverted.get(char)
             if index is None:
                 return False
-            if current.children[index] is None:
+            next = current.children[index]
+            if next is None:
                 return False
-            current = current.children[index]
+            current = next
         return current.is_end_of_word
 
     # method to check if a prefix exists in the trie
-    def is_prefix(self, prefix) -> bool:
-        current = self.root
+    def is_prefix(self, prefix: str) -> bool:
+        current = self.trie_root
         i = 0
         for char in prefix:
             index = self.vocab.inverted.get(char)
             if index is None:
                 return False
-            if current.children[index] is not None:
-                current = current.children[index]
+            next = current.children[index]
+            if next is not None:
+                current = next
             else:
                 i += 1
         if i > 0:
@@ -94,57 +131,3 @@ class OutputDict(TypedDict):
     prompt: str
     name: str
     parameters: dict[str, Any]
-
-
-if __name__ == "__main__":
-    vocab = {
-        0: "_",
-        1: "{",
-        2: "}",
-        3: ",",
-        4: ":",
-        5: "a",
-        6: "b",
-        7: "c",
-        8: "d",
-        9: "e",
-        10: "f",
-        11: "g",
-        12: "h",
-        13: "i",
-        14: "j",
-        15: "k",
-        16: "l",
-        17: "m",
-        18: "n",
-        19: "o",
-        20: "p",
-        21: "q",
-        22: "r",
-        23: "s",
-        24: "t",
-        25: "u",
-        26: "v",
-        27: "w",
-        28: "x",
-        29: "y",
-        30: "z",
-    }
-    v = Vocab(vocab=vocab)
-    tree = Trie(vocab=v)
-    arr = ["fn_greet", "fn_hello_world", "fn_your_mom"]
-    for f in arr:
-        tree.insert(f)
-    search = ["fn_yes", "fn_your_mom", "fn_no"]
-    for f in search:
-        if tree.search(f):
-            print("true", end=" ")
-        else:
-            print("false", end=" ")
-    print()
-    prefix = ["haha_", "fn_he", "fn_n"]
-    for s in prefix:
-        if tree.is_prefix(s):
-            print("true", end=" ")
-        else:
-            print("false", end=" ")

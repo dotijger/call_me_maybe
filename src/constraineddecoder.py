@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 from src.parsing import Parsing, input_parsing
-from pydantic import BaseModel, model_validator, ConfigDict
+from pydantic import BaseModel, model_validator, ConfigDict, Field
 from src.error import ParameterError, EncodeError
-from src.classes import Vocab, JSONraw, OutputDict
+from src.classes import Vocab, OutputDict, Color
 from llm_sdk.llm_sdk import Small_LLM_Model
-from typing import Self
+from typing import Self, Any
 from src.helpers import replace_space, is_number
 from src.coder import Coder
 from src.namegen import NameGenerator
@@ -25,16 +25,17 @@ from pathlib import Path
 class ConstrainedDecoder(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     path: Parsing = Parsing()
-    llm: Small_LLM_Model  # insert model name as first param, if blank default = qwen
-    prompts: list[str] | None = None
-    functions: list[JSONraw] | None = None
-    function_names: list[str] | None = None
-    llm_vocab: Vocab | None = None
-    param_schema: dict[str, list[str]] | None = None
-    output: OutputDict | None = None
-    output_list: list[OutputDict] | None = None
-    nl_input_ids: list[int] | None = None
-    coder: Coder | None = None
+    llm: Small_LLM_Model
+    # insert model name as first param, if blank default = qwen
+    prompts: list[str] = []
+    functions: list[dict[str, Any]] = []
+    function_names: list[str] = []
+    llm_vocab: Vocab = Field(default_factory=lambda: Vocab(vocab={}))
+    coder: Coder = Coder(llm_vocab=Vocab(vocab={}))
+    param_schema: dict[str, list[tuple[str, str]]] = {}
+    nl_input_ids: list[int] = []
+    output_dict: OutputDict = {"prompt": "", "name": "", "parameters": {}}
+    output_list: list[OutputDict] = []
 
     @model_validator(mode="after")
     def setup(self) -> Self:
@@ -45,19 +46,21 @@ class ConstrainedDecoder(BaseModel):
             self.functions = json.load(f)
         self.function_names = []
         for function in self.functions:
-            self.function_names.append(function.get("name"))
+            self.function_names.append(function["name"])
         # loading the llm vocab
-        if self.llm_vocab is None:
-            vocab_path = self.llm.get_path_to_vocab_file()
-            with open(vocab_path) as v:
-                vocab = json.load(v)
-            # as the llm vocab is dict[str, int] and Vocab() accepts dict[int, str]
-            self.llm_vocab = Vocab(
-                vocab={k: v for v, k in vocab.items()}, inverted=vocab
-            )
+        vocab_path = self.llm.get_path_to_vocab_file()
+        with open(vocab_path) as v:
+            vocab = json.load(v)
+        # as the llm vocab is dict[str, int] and
+        # Vocab() accepts dict[int, str]
+        self.llm_vocab = Vocab(
+            vocab={k: v for v, k in vocab.items()}, inverted=vocab
+        )
         self.coder = Coder(llm_vocab=self.llm_vocab)
         # loading paramater schema lookup dictionary
-        self.param_schema = self._loading_parameters()
+        self.param_schema: dict[str, list[tuple[str, str]]] = (
+            self._loading_parameters()
+        )
 
         # setting up default natural language prompt (for fn_name)
         natural_language = " You are a function-calling assistant. \
@@ -65,13 +68,15 @@ class ConstrainedDecoder(BaseModel):
         responding with the function name. \
         Allowed functions and their descriptions: "
         for function in self.functions:
-            natural_language += f"Name: '{function.get('name')}', description: {function.get('description')}."
+            natural_language += f"Name: '{function.get('name')}', \
+                                description: {function.get('description')}."
+            print(f"Function imported: {function.get('name')}")
         text = replace_space(natural_language)
         self.nl_input_ids = self.coder.encode(text)
-
+        self._print_input()
         return self
 
-    def _loading_parameters(self) -> dict[str, dict[str, str]]:
+    def _loading_parameters(self) -> dict[str, list[tuple[str, str]]]:
         param_schema = {}
         for function in self.functions:
             parameters = []
@@ -87,56 +92,76 @@ class ConstrainedDecoder(BaseModel):
         self.output_list = []
         for prompt in self.prompts:
             self._process_prompt(prompt)
-            self.output_list.append(self.output)
+            self.output_list.append(self.output_dict)
         self._output_to_json()
 
     def _process_prompt(self, prompt: str) -> None:
-        print(f"\nProcessing prompt: {prompt}...\n")
-        self.output = {}
-        self.output["prompt"] = prompt
+        print(Color.DARK_GRAY.value + f"\nProcessing prompt: {prompt}...\n")
         namegen = NameGenerator(
             function_names=self.function_names,
             llm_vocab=self.llm_vocab,
-            llm_prompt=self.nl_input_ids,
+            llm_prompt=list(self.nl_input_ids),
             coder=self.coder,
         )
         print("\nFunction selection...\n")
-        self.output["name"] = namegen.generate(self.llm, prompt)
-        print(f"\nFunction selected: {self.output.get('name')}!")
-        parameters = self.param_schema[self.output.get("name")]
+        function_name = namegen.generate(self.llm, prompt)
+        print(Color.GREEN.value + f"\nFunction selected: {function_name}!")
+        parameters = self.param_schema[function_name]
         amount = len(parameters)
         i = 1
-        info = (self.output.get("name"), amount)
-        paramdict = {}
+        info = (function_name, amount)
+        paramdict: dict[str, Any] = {}
         lexicon = self._prepare_lexicon(prompt, info[0])
-        print("\nExtracting parameter values...\n")
+        print(
+            Color.BLUE.value
+            + "\nExtracting parameter values...\n"
+            + Color.DARK_GRAY.value
+        )
         for key, value in parameters:
-            llm_prompt = self._prompt(info, i, prompt, value)
+            llm_prompt = self._prompt(info, i, prompt, value, paramdict)
             text = replace_space(llm_prompt)
             try:
                 input_ids = self.coder.encode(text)
             except EncodeError:
-                input_ids = self.llm.encode(text)
+                input_ids = self.llm.encode(text).tolist()
             used = self._remove_used_parameters(lexicon, paramdict)
             if len(used) < len(lexicon) and used != "":
                 lexicon = used
-            try:
-                paramgen = self._get_parameter_generator(key, value)
-            except ParameterError as e:
-                print(
-                    f"Unsupported parameter type {value} in {self.output.get('name')}: {e}"
-                )
-                continue
+            if value == "boolean":
+                boolgen = self._get_bool_paramgen()
+            else:
+                try:
+                    paramgen = self._get_parameter_generator(key, value)
+                except ParameterError as e:
+                    print(
+                        Color.RED.value
+                        + f"Unsupported parameter type {value} in \
+                        {function_name}: {e}"
+                        + Color.RESET.value
+                    )
+                    continue
             try:
                 if value == "boolean":
-                    parameter = paramgen.generate(self.llm, prompt)
-                elif (key == "regex" or key == "replacement") and value == "string":
-                    parameter = paramgen.generate(input_ids, (amount == i), prompt)
+                    encoded_prompt = self.coder.encode(lexicon)
+                    parameter = boolgen.generate(
+                        self.llm, encoded_prompt, prompt
+                    )
+                elif (
+                    key == "regex" or key == "replacement"
+                ) and value == "string":
+                    parameter = paramgen.generate(
+                        input_ids, (amount == i), prompt
+                    )
                 else:
-                    parameter = paramgen.generate(input_ids, (amount == i), lexicon)
+                    parameter = paramgen.generate(
+                        input_ids, (amount == i), lexicon
+                    )
             except EncodeError as e:
                 print(
-                    f"Parameter generation for {key}: {value} of {self.output.get('name')} failed: {e}"
+                    Color.RED.value
+                    + f"Parameter generation for {key}: {value} of \
+                    {function_name} failed: {e}"
+                    + Color.RESET.value
                 )
             paramdict[key] = parameter
             i += 1
@@ -144,21 +169,27 @@ class ConstrainedDecoder(BaseModel):
             if value == "integer":
                 if not is_number(paramdict[key]):
                     print(
-                        f"\nNo number value found for {key}: {paramdict[key]}: defaulting to 0...\n"
+                        Color.RED.value
+                        + f"\nNo number value found for {key}: \
+                        defaulting to 0...\n"
+                        + Color.RESET.value
                     )
-                    tmp = int(0)
+                    tmp_int = int(0)
                 else:
-                    tmp = int(paramdict[key])
-                paramdict[key] = tmp
+                    tmp_int = int(paramdict[key])
+                paramdict[key] = tmp_int
             elif value == "number":
                 if not is_number(paramdict[key]):
                     print(
-                        f"\nNo number value found for {key}: {paramdict[key]}: defaulting to 0...\n"
+                        Color.RED.value
+                        + f"\nNo number value found for {key}: \
+                        defaulting to 0...\n"
+                        + Color.RESET.value
                     )
-                    tmp = float(0)
+                    tmp_flt = float(0)
                 else:
-                    tmp = float(paramdict[key])
-                paramdict[key] = tmp
+                    tmp_flt = float(paramdict[key])
+                paramdict[key] = tmp_flt
             elif value == "boolean":
                 if paramdict[key] == "True":
                     paramdict[key] = True
@@ -166,12 +197,22 @@ class ConstrainedDecoder(BaseModel):
                     paramdict[key] = False
             else:
                 continue
-        print(f"\nParameters extracted: {paramdict}!\n")
-        self.output["parameters"] = paramdict
+        print(
+            Color.GREEN.value
+            + f"\nParameters extracted: {paramdict}!\n"
+            + Color.RESET.value
+        )
+        self.output_dict: OutputDict = {
+            "prompt": prompt,
+            "name": function_name,
+            "parameters": paramdict,
+        }
 
     def _prepare_lexicon(self, prompt: str, fn_name: str) -> str:
         terminator = (
-            "'" if prompt.count("'") >= 2 and prompt.count("'") % 2 == 0 else '"'
+            "'"
+            if prompt.count("'") >= 2 and prompt.count("'") % 2 == 0
+            else '"'
         )
         fn_words = fn_name.split("_")
         prompt = prompt + " "
@@ -190,7 +231,9 @@ class ConstrainedDecoder(BaseModel):
                 current_word += char
         return " ".join(result)
 
-    def _get_parameter_generator(self, key: str, value: str) -> BaseParameterGenerator:
+    def _get_parameter_generator(
+        self, key: str, value: str
+    ) -> BaseParameterGenerator:
         if key == "regex" or key == "replacement":
             return RegexParameterGenerator(
                 llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
@@ -207,29 +250,44 @@ class ConstrainedDecoder(BaseModel):
             return IntegerParameterGenerator(
                 llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
             )
-        elif value == "boolean":
-            return BoolParameterGenerator(
-                function_names=["True", "False"],
-                llm=self.llm,
-                llm_vocab=self.llm_vocab,
-                coder=self.coder,
-            )
         elif value == "array":
-            ...
+            return BaseParameterGenerator(
+                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
+            )
         elif value == "object":
-            ...
+            return BaseParameterGenerator(
+                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
+            )
         else:
             return BaseParameterGenerator(
                 llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
             )
 
+    def _get_bool_paramgen(self) -> BoolParameterGenerator:
+        return BoolParameterGenerator(
+            function_names=["True", "False"],
+            llm_vocab=self.llm_vocab,
+            coder=self.coder,
+        )
+
     # parameter prompt generator
-    def _prompt(self, info: tuple[str, int], count: int, prompt: str, kind: str) -> str:
+    def _prompt(
+        self,
+        info: tuple[str, int],
+        count: int,
+        prompt: str,
+        kind: str,
+        paramdict: dict[str, str],
+    ) -> str:
         parameters = self.param_schema[info[0]]
         param_to_extract = parameters[count - 1][0]
         prompt = f"User prompt: {prompt} \
-        Function being called: {info[0]} \
-        Parameter to extract: {param_to_extract}. \
+        Function being called: {info[0]}"
+        if len(paramdict.values()) > 0:
+            prompt += f"Do not extract these: {paramdict}"
+        else:
+            prompt += "No parameters extracted yet."
+        prompt += f"Parameter to extract: {param_to_extract}. \
         Extract the value of {param_to_extract} from the user prompt. \
         Copy the {kind} parameter from the prompt: \
         {prompt}. {param_to_extract} = "
@@ -239,7 +297,9 @@ class ConstrainedDecoder(BaseModel):
     def _allowed_tokens(text: str) -> list[str]:
         return text.split(" ")
 
-    def _remove_used_parameters(self, text: str, paramdict: dict[str, str]) -> str:
+    def _remove_used_parameters(
+        self, text: str, paramdict: dict[str, str]
+    ) -> str:
         available = text.split(" ")
         if len(paramdict.items()) == 0:
             return ""
@@ -261,12 +321,32 @@ class ConstrainedDecoder(BaseModel):
         for char in text:
             if char == ".":
                 dots += 1
-        return dots
+        return dots != 0
 
     def _output_to_json(self) -> None:
-        print(f"Outputting responses to JSON to {self.path.output}...")
+        print(
+            Color.BLUE.value
+            + f"Outputting responses to JSON to {self.path.output}..."
+        )
         output_path = Path(self.path.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path.output, "w") as jfile:
             json.dump(self.output_list, jfile, indent=2)
-        print("Output complete! For more prompting, call me again, maybe?\n<End>\n")
+        print(
+            Color.GREEN.value
+            + "Output complete!\n"
+            + Color.MAGENTA.value
+            + "For more prompting, call me again, maybe?\n<End>\n"
+        )
+
+    def _print_input(self) -> None:
+        print(
+            Color.MAGENTA.value + "Initializing program..." + Color.RESET.value
+        )
+        print(
+            Color.GREEN.value
+            + f"\nFunction definitions extracted from: {self.path.func_def}"
+        )
+        print(
+            f"\nPrompts imported from: {self.path.input}" + Color.RESET.value
+        )

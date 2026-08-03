@@ -15,7 +15,10 @@ class Parsing(BaseModel):
         try:
             flags = self._parse_flags()
         except (ParsingError, FileNotFoundError) as e:
-            print(f"Oops... There seems to be a problem with your input files: {e}")
+            print(
+                f"Oops... There seems to be a\
+ problem with your input files: {e}"
+            )
             sys.exit(1)
         if flags.get("-input"):
             self.input = flags["-input"]
@@ -29,21 +32,28 @@ class Parsing(BaseModel):
         flags = {}
         arguments = []
         if len(sys.argv) <= 2:
-            raise ParsingError("No functions definition specified, exiting program")
+            raise ParsingError(
+                "No functions definition specified, exiting program"
+            )
         if len(sys.argv) >= 3:
             arguments = sys.argv.copy()
             while len(arguments) > 1:
                 flags[arguments.pop(-1)] = arguments.pop(-1)
-        if self._check_flags(flags):
+        try:
+            self._check_flags(flags)
             return flags
+        except ParsingError as e:
+            raise ParsingError(f"{e}")
 
     @staticmethod
-    def _check_flags(flags: dict[str, str]) -> bool:
+    def _check_flags(flags: dict[str, str]) -> None:
         allowed = ["-functions_definition", "-input", "-output"]
         required = 0
         for name in flags.keys():
             if name not in allowed:
-                return False
+                raise ParsingError(
+                    f"{name} is not an allowed flag to run this program with."
+                )
             if name == "-functions_definition":
                 required = 1
         for flag, path in flags.items():
@@ -52,10 +62,13 @@ class Parsing(BaseModel):
                     with open(path) as f:
                         _ = json.load(f)
                 except json.JSONDecodeError as e:
-                    raise ParsingError(f"JSON given by {flag} cannot be read: {e}")
+                    raise ParsingError(
+                        f"JSON given by {flag} cannot be read: {e}"
+                    )
         if not required:
-            return False
-        return True
+            raise ParsingError(
+                "Required flag '-functions_definition' not defined"
+            )
 
 
 def input_parsing(file: str) -> list[str]:

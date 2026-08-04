@@ -1,6 +1,6 @@
 from pydantic import BaseModel, model_validator, ConfigDict
 from llm_sdk.llm_sdk import Small_LLM_Model
-from src.error import VocabError
+from src.error import VocabError, EncodeError
 from src.classes import Vocab, Trie
 from src.coder import Coder
 import numpy as np
@@ -47,7 +47,6 @@ class StringParameterGenerator(BaseParameterGenerator):
         end = f'"{terminator}'
         input_ids += self.coder.encode('"')
         substrings = extract_substrings(prompt)
-        # print(f"allowed: {substrings=}")
         while generating is True:
             print(f"Generating: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
@@ -547,7 +546,12 @@ class BoolParameterGenerator(BaseModel):
         not_allowed: list[int] = []
         prompts = f"Answer this prompt: {prompt}"
         text = replace_space(prompts)
-        input_ids = llm_prompt + self.coder.encode(text)
+        try:
+            input_ids = self.llm_prompt + self.coder.encode(text)
+        except EncodeError:
+            input_ids = (
+                self.llm_prompt + llm.encode(prompts).squeeze(0).tolist()
+            )
         while generating is True:
             print(f"Generating: {generated!r}", flush=True)
             logits = np.array(llm.get_logits_from_input_ids(input_ids))

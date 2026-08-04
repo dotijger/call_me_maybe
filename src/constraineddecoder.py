@@ -131,7 +131,7 @@ replace with asterisks -> * ; replace with dog -> dog ."
             try:
                 input_ids = self.coder.encode(text)
             except EncodeError:
-                input_ids = self.llm.encode(llm_prompt).tolist()
+                input_ids = self.llm.encode(llm_prompt).squeeze(0).tolist()
             used = self._remove_used_parameters(lexicon, paramdict)
             if len(used) < len(lexicon) and used != "":
                 lexicon = used

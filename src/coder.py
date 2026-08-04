@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from src.classes import Vocab
+from src.classes import Vocab, Color
 from src.error import DecodeError, EncodeError
 from src.helpers import is_prefix_string
 
@@ -35,7 +35,13 @@ class Coder(BaseModel):
                         sub += string[i]
                         continue
                 if len(possible_ids) == 0:
-                    print(tokenized, string)
+                    # print(tokenized, string)
+                    print(
+                        Color.RED.value
+                        + "\nSpecial character detected, \
+falling back to LLM encoder.\n"
+                        + Color.RESET.value
+                    )
                     raise EncodeError(
                         "String cannot be encoded, vocabulary insufficient"
                     )

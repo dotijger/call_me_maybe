@@ -1,8 +1,9 @@
 from pydantic import BaseModel, model_validator, ConfigDict
 from src.classes import Trie, Vocab
 from llm_sdk.llm_sdk import Small_LLM_Model
-from src.helpers import get_mask
-from src.error import VocabError
+from src.helpers import replace_space, get_mask
+from src.error import VocabError, EncodeError
+from src.coder import Coder
 from typing import Self
 import numpy as np
 
@@ -10,17 +11,17 @@ import numpy as np
 class NameGenerator(BaseModel):
     """
     ng =
-    NameGenerator(
-    function_names=list[str],
+    NameGenerator(function_names=list[str],
     llm_vocab=Vocab(),
-    llm_prompt=str
-    )
+    llm_prompt=str,
+    coder=Coder)
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     function_names: list[str]
     llm_vocab: Vocab
     llm_prompt: list[int]
+    coder: Coder
     trie_vocab: Vocab = Vocab(
         vocab={
             0: "_",
@@ -80,7 +81,13 @@ class NameGenerator(BaseModel):
         input_ids = []
         not_allowed: list[int] = []
         prompts = f"Answer this prompt: {prompt}"
-        input_ids = (self.llm_prompt + llm.encode(prompts).squeeze(0).tolist())
+        text = replace_space(prompts)
+        try:
+            input_ids = self.llm_prompt + self.coder.encode(text)
+        except EncodeError:
+            input_ids = (
+                self.llm_prompt + llm.encode(prompts).squeeze(0).tolist()
+            )
         while generating is True:
             print(f"Generating: {generated!r}", flush=True)
             logits = np.array(llm.get_logits_from_input_ids(input_ids))

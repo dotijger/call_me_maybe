@@ -6,7 +6,8 @@ from src.error import ParameterError, EncodeError
 from src.classes import Vocab, OutputDict, Color
 from llm_sdk.llm_sdk import Small_LLM_Model
 from typing import Self, Any
-from src.helpers import is_number
+from src.helpers import replace_space, is_number
+from src.coder import Coder
 from src.namegen import NameGenerator
 from src.paramgen import (
     BaseParameterGenerator,
@@ -30,6 +31,7 @@ class ConstrainedDecoder(BaseModel):
     functions: list[dict[str, Any]] = []
     function_names: list[str] = []
     llm_vocab: Vocab = Field(default_factory=lambda: Vocab(vocab={}))
+    coder: Coder = Coder(llm_vocab=Vocab(vocab={}))
     param_schema: dict[str, list[tuple[str, str]]] = {}
     nl_input_ids: list[int] = []
     output_dict: OutputDict = {"prompt": "", "name": "", "parameters": {}}
@@ -58,6 +60,7 @@ replace with asterisks -> * ; replace with dog -> dog ."
         self.llm_vocab = Vocab(
             vocab={k: v for v, k in vocab.items()}, inverted=vocab
         )
+        self.coder = Coder(llm_vocab=self.llm_vocab)
         # loading paramater schema lookup dictionary
         self.param_schema: dict[str, list[tuple[str, str]]] = (
             self._loading_parameters()
@@ -73,24 +76,21 @@ replace with asterisks -> * ; replace with dog -> dog ."
                                 description: {function.get('description')}."
             print(f"Function imported: {function.get('name')}")
         natural_language += "For example: 'Greet john' -> fn_greet."
-        self.nl_input_ids = (
-            self.llm.encode(natural_language).squeeze(0).tolist()
-        )
+        text = replace_space(natural_language)
+        self.nl_input_ids = self.coder.encode(text)
         self._print_input()
         return self
 
-    def _loading_parameters(self) -> dict[str, list[tuple[Any, Any]]]:
+    def _loading_parameters(self) -> dict[str, list[tuple[str, str]]]:
         param_schema = {}
         for function in self.functions:
             parameters = []
             try:
-                for pname, ptype in function["parameters"].items():
+                for pname, ptype in function.get("parameters").items():
                     parameters.append((pname, ptype["type"]))
             except KeyError:
                 raise KeyError
-            name = function.get("name")
-            if isinstance(name, str):
-                param_schema[name] = parameters
+            param_schema[function.get("name")] = parameters
         return param_schema
 
     def run(self) -> None:
@@ -105,7 +105,8 @@ replace with asterisks -> * ; replace with dog -> dog ."
         namegen = NameGenerator(
             function_names=self.function_names,
             llm_vocab=self.llm_vocab,
-            llm_prompt=self.nl_input_ids
+            llm_prompt=list(self.nl_input_ids),
+            coder=self.coder,
         )
         print("\nFunction selection...\n")
         function_prompt = (
@@ -126,7 +127,11 @@ replace with asterisks -> * ; replace with dog -> dog ."
         )
         for key, value in parameters:
             llm_prompt = self._prompt(info, i, prompt, value, paramdict)
-            input_ids = self.llm.encode(llm_prompt).squeeze(0).tolist()
+            text = replace_space(llm_prompt)
+            try:
+                input_ids = self.coder.encode(text)
+            except EncodeError:
+                input_ids = self.llm.encode(llm_prompt).squeeze(0).tolist()
             used = self._remove_used_parameters(lexicon, paramdict)
             if len(used) < len(lexicon) and used != "":
                 lexicon = used
@@ -145,10 +150,8 @@ replace with asterisks -> * ; replace with dog -> dog ."
                     continue
             try:
                 if value == "boolean":
-                    encoded_prompt = (
-                        self.llm.encode(lexicon).squeeze(0).tolist()
-                    )
-                    parameter: str | None = boolgen.generate(
+                    encoded_prompt = self.coder.encode(lexicon)
+                    parameter = boolgen.generate(
                         self.llm, encoded_prompt, prompt
                     )
                 elif (
@@ -243,37 +246,39 @@ replace with asterisks -> * ; replace with dog -> dog ."
             return RegexParameterGenerator(
                 llm=self.llm,
                 llm_vocab=self.llm_vocab,
-                is_pattern=(key == "regex")
+                coder=self.coder,
+                is_pattern=(key == "regex"),
             )
         elif value == "string":
             return StringParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab
+                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
             )
         elif value == "number":
             return NumberParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab
+                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
             )
         elif value == "integer":
             return IntegerParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab
+                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
             )
         elif value == "array":
             return BaseParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab
+                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
             )
         elif value == "object":
             return BaseParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab
+                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
             )
         else:
             return BaseParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab
+                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
             )
 
     def _get_bool_paramgen(self) -> BoolParameterGenerator:
         return BoolParameterGenerator(
             function_names=["True", "False"],
-            llm_vocab=self.llm_vocab
+            llm_vocab=self.llm_vocab,
+            coder=self.coder,
         )
 
     # parameter prompt generator

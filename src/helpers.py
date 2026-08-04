@@ -27,7 +27,7 @@ def extract_substrings(prompt: str) -> list[str]:
         end = prompt.find(terminator, start + 1)
         if end == -1:
             break
-        substrings.append(prompt[start+1:end])
+        substrings.append(prompt[start + 1 : end])
         start = prompt.find(terminator, end + 1)
     outsides = extract_outside(prompt, terminator)
     return substrings + outsides
@@ -82,7 +82,7 @@ def get_substring(text: str) -> list[str]:
             end = text.find(char, i + 1)
             if end == -1:
                 break
-            substrings.append(text[i+1:end])
+            substrings.append(text[i + 1 : end])
             i = end + 1
         else:
             i += 1

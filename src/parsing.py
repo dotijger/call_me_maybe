@@ -20,12 +20,12 @@ class Parsing(BaseModel):
  problem with your input files: {e}"
             )
             sys.exit(1)
-        if flags.get("-input"):
-            self.input = flags["-input"]
-        if flags.get("-output"):
-            self.output = flags["-output"]
-        if flags.get("-functions_definition"):
-            self.func_def = flags["-functions_definition"]
+        if flags.get("--input"):
+            self.input = flags["--input"]
+        if flags.get("--output"):
+            self.output = flags["--output"]
+        if flags.get("--functions_definition"):
+            self.func_def = flags["--functions_definition"]
         return self
 
     def _parse_flags(self) -> dict[str, str]:
@@ -47,14 +47,14 @@ class Parsing(BaseModel):
 
     @staticmethod
     def _check_flags(flags: dict[str, str]) -> None:
-        allowed = ["-functions_definition", "-input", "-output"]
+        allowed = ["--functions_definition", "--input", "--output"]
         required = 0
         for name in flags.keys():
             if name not in allowed:
                 raise ParsingError(
                     f"{name} is not an allowed flag to run this program with."
                 )
-            if name == "-functions_definition":
+            if name == "--functions_definition":
                 required = 1
         for flag, path in flags.items():
             if flag != "-output":
@@ -67,7 +67,7 @@ class Parsing(BaseModel):
                     )
         if not required:
             raise ParsingError(
-                "Required flag '-functions_definition' not defined"
+                "Required flag '--functions_definition' not defined"
             )
 
 

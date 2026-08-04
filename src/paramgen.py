@@ -28,8 +28,8 @@ class BaseParameterGenerator(BaseModel):
 
     def generate(
         self, input_ids: list[int], is_last: bool, context: str
-    ) -> str:
-        return "NULL"
+    ) -> None:
+        return None
 
 
 class StringParameterGenerator(BaseParameterGenerator):
@@ -156,6 +156,9 @@ class RegexParameterGenerator(BaseParameterGenerator):
     RegexParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
+    is_pattern: bool = True
+    REGEX_CHAR: str = "\\.^$*+?{}[]()|-"
+
     def generate(
         self,
         input_ids: list[int],
@@ -228,13 +231,18 @@ class RegexParameterGenerator(BaseParameterGenerator):
         if temp.endswith(end):
             length = len(end)
             content = temp[1:-length]
-            return content.isalpha()
         elif temp[1:].endswith('"'):
             content = temp[1:-1]
-            return content.isalpha()
         else:
             content = temp[1:]
-        return content.isalpha()
+        return self._valid_content(content)
+
+    def _valid_content(self, content: str) -> bool:
+        if self.is_pattern:
+            return all(c.isalnum() or c in self.REGEX_CHAR for c in content)
+        if len(content) > 20:
+            return False
+        return all(c.isalnum() or c in " _-*" for c in content)
 
 
 class IntegerParameterGenerator(BaseParameterGenerator):
@@ -491,6 +499,8 @@ class BoolParameterGenerator(BaseModel):
             28: "x",
             29: "y",
             30: "z",
+            31: "T",
+            32: "F",
         }
     )
     trie_functions: Trie | None = None

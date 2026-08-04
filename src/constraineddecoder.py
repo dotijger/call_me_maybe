@@ -36,6 +36,11 @@ class ConstrainedDecoder(BaseModel):
     nl_input_ids: list[int] = []
     output_dict: OutputDict = {"prompt": "", "name": "", "parameters": {}}
     output_list: list[OutputDict] = []
+    REGEX_EXAMPLES: str = "Examples: extract digits or numbers -> \\d+ ; \
+extract vowels -> [aeiouAEIOU] ; extract whitespace -> \\s+ ; \
+match the whole word 'cat' -> \\bcat\\b ; extract letters -> [a-zA-Z]+ ."
+    REPLACEMENT_EXAMPLES: str = "Examples: replace with NUMBERS -> NUMBERS ; \
+replace with asterisks -> * ; replace with dog -> dog ."
 
     @model_validator(mode="after")
     def setup(self) -> Self:
@@ -104,7 +109,10 @@ class ConstrainedDecoder(BaseModel):
             coder=self.coder,
         )
         print("\nFunction selection...\n")
-        function_name = namegen.generate(self.llm, prompt)
+        function_prompt = (
+            f"Which function should be used to answer the following: {prompt}"
+        )
+        function_name = namegen.generate(self.llm, function_prompt)
         print(Color.GREEN.value + f"\nFunction selected: {function_name}!")
         parameters = self.param_schema[function_name]
         amount = len(parameters)
@@ -123,7 +131,7 @@ class ConstrainedDecoder(BaseModel):
             try:
                 input_ids = self.coder.encode(text)
             except EncodeError:
-                input_ids = self.llm.encode(text).tolist()
+                input_ids = self.llm.encode(llm_prompt).tolist()
             used = self._remove_used_parameters(lexicon, paramdict)
             if len(used) < len(lexicon) and used != "":
                 lexicon = used
@@ -171,25 +179,25 @@ class ConstrainedDecoder(BaseModel):
                     print(
                         Color.RED.value
                         + f"\nNo number value found for {key}: \
-                        defaulting to 0...\n"
+                        defaulting to null...\n"
                         + Color.RESET.value
                     )
-                    tmp_int = int(0)
+                    paramdict[key] = None
                 else:
                     tmp_int = int(paramdict[key])
-                paramdict[key] = tmp_int
+                    paramdict[key] = tmp_int
             elif value == "number":
                 if not is_number(paramdict[key]):
                     print(
                         Color.RED.value
                         + f"\nNo number value found for {key}: \
-                        defaulting to 0...\n"
+                        defaulting to null...\n"
                         + Color.RESET.value
                     )
-                    tmp_flt = float(0)
+                    paramdict[key] = None
                 else:
                     tmp_flt = float(paramdict[key])
-                paramdict[key] = tmp_flt
+                    paramdict[key] = tmp_flt
             elif value == "boolean":
                 if paramdict[key] == "True":
                     paramdict[key] = True
@@ -236,7 +244,10 @@ class ConstrainedDecoder(BaseModel):
     ) -> BaseParameterGenerator:
         if key == "regex" or key == "replacement":
             return RegexParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
+                llm=self.llm,
+                llm_vocab=self.llm_vocab,
+                coder=self.coder,
+                is_pattern=(key == "regex"),
             )
         elif value == "string":
             return StringParameterGenerator(
@@ -288,8 +299,12 @@ class ConstrainedDecoder(BaseModel):
         else:
             prompt += "No parameters extracted yet."
         prompt += f"Parameter to extract: {param_to_extract}. \
-        Extract the value of {param_to_extract} from the user prompt. \
-        Copy the {kind} parameter from the prompt: \
+        Extract the value of {param_to_extract} from the user prompt."
+        if param_to_extract == "regex":
+            prompt += self.REGEX_EXAMPLES
+        elif param_to_extract == "replacement":
+            prompt += self.REPLACEMENT_EXAMPLES
+        prompt += f"Copy the {kind} parameter from the prompt: \
         {prompt}. {param_to_extract} = "
         return prompt
 
@@ -306,6 +321,8 @@ class ConstrainedDecoder(BaseModel):
         used_nbr = []
         used_str = []
         for value in paramdict.values():
+            if value is None:
+                continue
             if is_number(value):
                 used_nbr.append(value)
             else:

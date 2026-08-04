@@ -14,10 +14,10 @@ install:
 	uv sync
 
 run:
-	uv run python3 -m $(SRC_DIR) -functions_definition $(FD_DIR)
+	uv run python3 -m $(SRC_DIR) --functions_definition $(FD_DIR)
 
 debug:
-	uv run python3 -m pdb $(SRC_DIR) -functions_definition $(FD_DIR)
+	uv run python3 -m pdb -m $(SRC_DIR) --functions_definition $(FD_DIR)
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +

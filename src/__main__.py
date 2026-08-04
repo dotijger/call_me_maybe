@@ -1,5 +1,12 @@
 from src.constraineddecoder import ConstrainedDecoder
-from src.error import EncodeError, DecodeError, ParameterError
+from src.error import (
+    EncodeError,
+    DecodeError,
+    ParameterError,
+    ParsingError,
+    VocabError,
+    TrieError,
+)
 from llm_sdk.llm_sdk import Small_LLM_Model
 from datetime import datetime
 
@@ -10,7 +17,14 @@ if __name__ == "__main__":
     try:
         cd = ConstrainedDecoder(llm=ai)
         cd.run()
-    except (EncodeError, DecodeError, ParameterError) as e:
+    except (
+        EncodeError,
+        DecodeError,
+        ParameterError,
+        ParsingError,
+        VocabError,
+        TrieError,
+    ) as e:
         print(e)
     end = datetime.now()
     duration = end - start

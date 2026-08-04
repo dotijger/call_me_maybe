@@ -37,8 +37,7 @@ class ConstrainedDecoder(BaseModel):
     output_dict: OutputDict = {"prompt": "", "name": "", "parameters": {}}
     output_list: list[OutputDict] = []
     REGEX_EXAMPLES: str = "Examples: extract digits or numbers -> \\d+ ; \
-extract vowels -> [aeiouAEIOU] ; extract whitespace -> \\s+ ; \
-match the whole word 'cat' -> \\bcat\\b ; extract letters -> [a-zA-Z]+ ."
+match the whole word 'cat' -> \\bcat\\b ;extract vowels -> [aeiouAEIOU] "
     REPLACEMENT_EXAMPLES: str = "Examples: replace with NUMBERS -> NUMBERS ; \
 replace with asterisks -> * ; replace with dog -> dog ."
 
@@ -76,6 +75,7 @@ replace with asterisks -> * ; replace with dog -> dog ."
             natural_language += f"Name: '{function.get('name')}', \
                                 description: {function.get('description')}."
             print(f"Function imported: {function.get('name')}")
+        natural_language += "For example: 'Greet john' -> fn_greet."
         text = replace_space(natural_language)
         self.nl_input_ids = self.coder.encode(text)
         self._print_input()

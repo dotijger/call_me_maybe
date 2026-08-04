@@ -65,16 +65,7 @@ class Coder(BaseModel):
         return ids
 
     def _find_match(self, string: str) -> int:
-        id = -1
-        vocab_size = self.llm_vocab.size
-        if vocab_size is None:
-            raise EncodeError(
-                f"Vocab size returned 'None' during \
-                find_match with encoding {string}."
-            )
-        for i in range(vocab_size):
-            if self.llm_vocab.vocab.get(i) == string:
-                id = i
+        id = self.llm_vocab.inverted.get(string, -1)
         return id
 
     def _find_longest_match(self, ids: list[int]) -> int:

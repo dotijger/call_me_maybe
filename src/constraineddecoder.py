@@ -37,7 +37,7 @@ class ConstrainedDecoder(BaseModel):
     output_dict: OutputDict = {"prompt": "", "name": "", "parameters": {}}
     output_list: list[OutputDict] = []
     REGEX_EXAMPLES: str = "Examples: extract digits or numbers -> \\d+ ; \
-match the whole word 'cat' -> \\bcat\\b ;extract vowels -> [aeiouAEIOU] "
+substitute the word 'cat' -> 'cat' ; extract vowels -> [aeiouAEIOU] "
     REPLACEMENT_EXAMPLES: str = "Examples: replace with NUMBERS -> NUMBERS ; \
 replace with asterisks -> * ; replace with dog -> dog ."
 

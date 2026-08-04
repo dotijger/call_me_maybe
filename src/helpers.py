@@ -61,16 +61,16 @@ def get_mask(
     # an id is also its 'index' in the vocabulary / the key
     logits_arr = np.asarray(logits)
     mask = np.full(len(logits_arr), -np.inf)
+    ids_arr = np.asarray(ids, dtype=np.int64)
+
     if non is None:
-        for id in ids:
-            id = int(id)
-            mask[id] = 0
+        mask[ids_arr] = 0
         return mask
-    for id in ids:
-        id = int(id)
-        if id not in non:
-            mask[id] = 0
-    return mask
+
+    non_arr = np.asarray(non, dtype=np.int64)
+    keep = ~np.isin(ids_arr, non_arr)
+    mask[ids_arr[keep]] = 0
+    return mask    
 
 
 def get_substring(text: str) -> list[str]:

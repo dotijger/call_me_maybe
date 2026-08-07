@@ -1,24 +1,20 @@
 from pydantic import BaseModel, model_validator, ConfigDict
-from src_bonus.log import Logger
-from src_bonus.classes import Trie, Vocab
-from src_bonus.coder import Coder
+from src.classes import Trie, Vocab
 from llm_sdk.llm_sdk import Small_LLM_Model
-from src_bonus.helpers import get_mask, replace_space
-from src_bonus.error import VocabError
+from src.helpers import replace_space, get_mask
+from src.error import VocabError, EncodeError
+from src.coder import Coder
 from typing import Self
 import numpy as np
-import logging
 
 
 class NameGenerator(BaseModel):
     """
     ng =
-    NameGenerator(
-    function_names=list[str],
+    NameGenerator(function_names=list[str],
     llm_vocab=Vocab(),
-    llm_prompt=str
-    )
-    log
+    llm_prompt=str,
+    coder=Coder)
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -26,7 +22,6 @@ class NameGenerator(BaseModel):
     llm_vocab: Vocab
     llm_prompt: list[int]
     coder: Coder
-    log: Logger
     trie_vocab: Vocab = Vocab(
         vocab={
             0: "_",
@@ -87,9 +82,14 @@ class NameGenerator(BaseModel):
         not_allowed: list[int] = []
         prompts = f"Answer this prompt: {prompt}"
         text = replace_space(prompts)
-        input_ids = self.llm_prompt + self.coder.encode(text)
+        try:
+            input_ids = self.llm_prompt + self.coder.encode(text)
+        except EncodeError:
+            input_ids = (
+                self.llm_prompt + llm.encode(prompts).squeeze(0).tolist()
+            )
         while generating is True:
-            self.log.log(logging.INFO, f"Generating: {generated}")
+            print(f"Generating: {generated!r}", flush=True)
             logits = np.array(llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(generated)
             mask = get_mask(logits, allowed, not_allowed)

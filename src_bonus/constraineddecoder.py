@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 
-from src.parsing import Parsing, input_parsing
+from src_bonus.parser import Parser
+from src_bonus.log import Logger
 from pydantic import BaseModel, model_validator, ConfigDict, Field
-from src.error import ParameterError, EncodeError
-from src.classes import Vocab, OutputDict, Color
+from src_bonus.error import ParameterError, EncodeError, LogError
+from src_bonus.classes import Vocab, OutputDict, Color
+from src_bonus.coder import Coder
 from llm_sdk.llm_sdk import Small_LLM_Model
 from typing import Self, Any
-from src.helpers import replace_space, is_number
-from src.coder import Coder
-from src.namegen import NameGenerator
-from src.paramgen import (
+from src_bonus.helpers import is_number, replace_space
+from src_bonus.namegen import NameGenerator
+from src_bonus.paramgen import (
     BaseParameterGenerator,
     StringParameterGenerator,
     RegexParameterGenerator,
@@ -18,14 +19,16 @@ from src.paramgen import (
     BoolParameterGenerator,
 )
 import json
-from pathlib import Path
+import sys
+import logging
 # decoder = ConstrainedDecoder(path=path,llm=Small_LLM_Model())
 
 
 class ConstrainedDecoder(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    path: Parsing = Parsing()
+    path: Parser = Parser()
     llm: Small_LLM_Model
+    log: Logger | None = None
     # insert model name as first param, if blank default = qwen
     prompts: list[str] = []
     functions: list[dict[str, Any]] = []
@@ -43,10 +46,18 @@ replace with asterisks -> * ; replace with dog -> dog ."
 
     @model_validator(mode="after")
     def setup(self) -> Self:
-        # parsing the prompts
-        self.prompts = input_parsing(self.path.input)
+        # setup of the log
+        if self.log is None:
+            self.log = Logger(
+                visual=self.path.args.visual
+            )  # parsing the prompts
+        try:
+            self.prompts = self.path.parse_prompts()
+        except ValueError as e:
+            self.log.log(logging.CRITICAL, f"{e}")
+            sys.exit(1)
         # parsing the function definitions
-        with open(self.path.func_def) as f:
+        with open(self.path.args.functions_definition) as f:
             self.functions = json.load(f)
         self.function_names = []
         for function in self.functions:
@@ -74,23 +85,27 @@ replace with asterisks -> * ; replace with dog -> dog ."
         for function in self.functions:
             natural_language += f"Name: '{function.get('name')}', \
                                 description: {function.get('description')}."
-            print(f"Function imported: {function.get('name')}")
+            self.log.log(
+                logging.INFO, f"Function imported: {function.get('name')}"
+            )
         natural_language += "For example: 'Greet john' -> fn_greet."
         text = replace_space(natural_language)
         self.nl_input_ids = self.coder.encode(text)
         self._print_input()
         return self
 
-    def _loading_parameters(self) -> dict[str, list[tuple[str, str]]]:
+    def _loading_parameters(self) -> dict[str, list[tuple[Any, Any]]]:
         param_schema = {}
         for function in self.functions:
             parameters = []
             try:
-                for pname, ptype in function.get("parameters").items():
+                for pname, ptype in function["parameters"].items():
                     parameters.append((pname, ptype["type"]))
             except KeyError:
                 raise KeyError
-            param_schema[function.get("name")] = parameters
+            name = function.get("name")
+            if isinstance(name, str):
+                param_schema[name] = parameters
         return param_schema
 
     def run(self) -> None:
@@ -101,37 +116,35 @@ replace with asterisks -> * ; replace with dog -> dog ."
         self._output_to_json()
 
     def _process_prompt(self, prompt: str) -> None:
-        print(Color.DARK_GRAY.value + f"\nProcessing prompt: {prompt}...\n")
+        if self.log is None:
+            raise LogError(
+                f"No logger found, cannot process prompt: {prompt}."
+            )
+        self.log.log(logging.INFO, f"\nProcessing prompt: {prompt}...\n")
         namegen = NameGenerator(
             function_names=self.function_names,
             llm_vocab=self.llm_vocab,
-            llm_prompt=list(self.nl_input_ids),
+            llm_prompt=self.nl_input_ids,
             coder=self.coder,
+            log=self.log,
         )
-        print("\nFunction selection...\n")
+        self.log.log(logging.INFO, "\nFunction selection...\n")
         function_prompt = (
             f"Which function should be used to answer the following: {prompt}"
         )
         function_name = namegen.generate(self.llm, function_prompt)
-        print(Color.GREEN.value + f"\nFunction selected: {function_name}!")
+        self.log.log(logging.INFO, f"\nFunction selected: {function_name}!")
         parameters = self.param_schema[function_name]
         amount = len(parameters)
         i = 1
         info = (function_name, amount)
         paramdict: dict[str, Any] = {}
         lexicon = self._prepare_lexicon(prompt, info[0])
-        print(
-            Color.BLUE.value
-            + "\nExtracting parameter values...\n"
-            + Color.DARK_GRAY.value
-        )
+        self.log.log(logging.INFO, "\nExtracting parameter values...\n")
         for key, value in parameters:
             llm_prompt = self._prompt(info, i, prompt, value, paramdict)
             text = replace_space(llm_prompt)
-            try:
-                input_ids = self.coder.encode(text)
-            except EncodeError:
-                input_ids = self.llm.encode(llm_prompt).squeeze(0).tolist()
+            input_ids = self.coder.encode(text)
             used = self._remove_used_parameters(lexicon, paramdict)
             if len(used) < len(lexicon) and used != "":
                 lexicon = used
@@ -141,17 +154,17 @@ replace with asterisks -> * ; replace with dog -> dog ."
                 try:
                     paramgen = self._get_parameter_generator(key, value)
                 except ParameterError as e:
-                    print(
-                        Color.RED.value
-                        + f"Unsupported parameter type {value} in \
-                        {function_name}: {e}"
-                        + Color.RESET.value
+                    self.log.log(
+                        logging.WARNING,
+                        f"Unsupported parameter type {value} in \
+                        {function_name}: {e}",
                     )
                     continue
             try:
                 if value == "boolean":
-                    encoded_prompt = self.coder.encode(lexicon)
-                    parameter = boolgen.generate(
+                    lexicon_g = replace_space(lexicon)
+                    encoded_prompt = self.coder.encode(lexicon_g)
+                    parameter: str | None = boolgen.generate(
                         self.llm, encoded_prompt, prompt
                     )
                 elif (
@@ -165,22 +178,20 @@ replace with asterisks -> * ; replace with dog -> dog ."
                         input_ids, (amount == i), lexicon
                     )
             except EncodeError as e:
-                print(
-                    Color.RED.value
-                    + f"Parameter generation for {key}: {value} of \
-                    {function_name} failed: {e}"
-                    + Color.RESET.value
+                self.log.log(
+                    logging.ERROR,
+                    f"Parameter generation for {key}: {value} of \
+                    {function_name} failed: {e}",
                 )
             paramdict[key] = parameter
             i += 1
         for key, value in parameters:
             if value == "integer":
                 if not is_number(paramdict[key]):
-                    print(
-                        Color.RED.value
-                        + f"\nNo number value found for {key}: \
-                        defaulting to null...\n"
-                        + Color.RESET.value
+                    self.log.log(
+                        logging.WARNING,
+                        f"\nNo number value found for {key}: \
+                        defaulting to null...\n",
                     )
                     paramdict[key] = None
                 else:
@@ -188,11 +199,10 @@ replace with asterisks -> * ; replace with dog -> dog ."
                     paramdict[key] = tmp_int
             elif value == "number":
                 if not is_number(paramdict[key]):
-                    print(
-                        Color.RED.value
-                        + f"\nNo number value found for {key}: \
-                        defaulting to null...\n"
-                        + Color.RESET.value
+                    self.log.log(
+                        logging.WARNING,
+                        f"\nNo number value found for {key}: \
+                        defaulting to null...\n",
                     )
                     paramdict[key] = None
                 else:
@@ -205,11 +215,7 @@ replace with asterisks -> * ; replace with dog -> dog ."
                     paramdict[key] = False
             else:
                 continue
-        print(
-            Color.GREEN.value
-            + f"\nParameters extracted: {paramdict}!\n"
-            + Color.RESET.value
-        )
+        self.log.log(logging.INFO, f"\nParameters extracted: {paramdict}!\n")
         self.output_dict: OutputDict = {
             "prompt": prompt,
             "name": function_name,
@@ -242,43 +248,73 @@ replace with asterisks -> * ; replace with dog -> dog ."
     def _get_parameter_generator(
         self, key: str, value: str
     ) -> BaseParameterGenerator:
+        if self.log is None:
+            raise LogError(
+                "Logger not defined, unable to pass logger to parameter\
+generator."
+            )
         if key == "regex" or key == "replacement":
             return RegexParameterGenerator(
                 llm=self.llm,
                 llm_vocab=self.llm_vocab,
                 coder=self.coder,
+                log=self.log,
                 is_pattern=(key == "regex"),
             )
         elif value == "string":
             return StringParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
+                llm=self.llm,
+                llm_vocab=self.llm_vocab,
+                coder=self.coder,
+                log=self.log,
             )
         elif value == "number":
             return NumberParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
+                llm=self.llm,
+                llm_vocab=self.llm_vocab,
+                coder=self.coder,
+                log=self.log,
             )
         elif value == "integer":
             return IntegerParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
+                llm=self.llm,
+                llm_vocab=self.llm_vocab,
+                coder=self.coder,
+                log=self.log,
             )
         elif value == "array":
             return BaseParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
+                llm=self.llm,
+                llm_vocab=self.llm_vocab,
+                coder=self.coder,
+                log=self.log,
             )
         elif value == "object":
             return BaseParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
+                llm=self.llm,
+                llm_vocab=self.llm_vocab,
+                coder=self.coder,
+                log=self.log,
             )
         else:
             return BaseParameterGenerator(
-                llm=self.llm, llm_vocab=self.llm_vocab, coder=self.coder
+                llm=self.llm,
+                llm_vocab=self.llm_vocab,
+                coder=self.coder,
+                log=self.log,
             )
 
     def _get_bool_paramgen(self) -> BoolParameterGenerator:
+        if self.log is None:
+            raise LogError(
+                "Logger not defined, unable to pass logger to parameter\
+generator."
+            )
         return BoolParameterGenerator(
             function_names=["True", "False"],
             llm_vocab=self.llm_vocab,
             coder=self.coder,
+            log=self.log,
         )
 
     # parameter prompt generator
@@ -341,17 +377,19 @@ replace with asterisks -> * ; replace with dog -> dog ."
         return dots != 0
 
     def _output_to_json(self) -> None:
-        print(
-            Color.BLUE.value
-            + f"Outputting responses to JSON to {self.path.output}..."
+        if self.log is None:
+            raise LogError("Logger not found during output to JSON.")
+        self.log.log(
+            logging.INFO,
+            f"Outputting responses to JSON to {self.path.args.output}...",
         )
-        output_path = Path(self.path.output)
+        output_path = self.path.args.output
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path.output, "w") as jfile:
+        with open(self.path.args.output, "w") as jfile:
             json.dump(self.output_list, jfile, indent=2)
         print(
             Color.GREEN.value
-            + "Output complete!\n"
+            + "\nOutput complete!\n"
             + Color.MAGENTA.value
             + "For more prompting, call me again, maybe?\n<End>\n"
         )
@@ -359,11 +397,4 @@ replace with asterisks -> * ; replace with dog -> dog ."
     def _print_input(self) -> None:
         print(
             Color.MAGENTA.value + "Initializing program..." + Color.RESET.value
-        )
-        print(
-            Color.GREEN.value
-            + f"\nFunction definitions extracted from: {self.path.func_def}"
-        )
-        print(
-            f"\nPrompts imported from: {self.path.input}" + Color.RESET.value
         )

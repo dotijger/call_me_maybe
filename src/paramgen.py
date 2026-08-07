@@ -1,5 +1,6 @@
 from pydantic import BaseModel, model_validator, ConfigDict
 from llm_sdk.llm_sdk import Small_LLM_Model
+from src.log import Logger
 from src.error import VocabError
 from src.classes import Vocab, Trie
 import numpy as np
@@ -10,6 +11,7 @@ from src.helpers import (
     extract_substrings,
 )
 from typing import Self
+import logging
 
 
 class BaseParameterGenerator(BaseModel):
@@ -21,6 +23,7 @@ class BaseParameterGenerator(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     llm: Small_LLM_Model
     llm_vocab: Vocab
+    log: Logger
     generated: str = ""
 
     def generate(
@@ -45,7 +48,7 @@ class StringParameterGenerator(BaseParameterGenerator):
         input_ids += self.llm.encode('"')
         substrings = extract_substrings(prompt)
         while generating is True:
-            print(f"Generating: {self.generated!r}", flush=True)
+            self.log.log(logging.INFO, f"Generating: {self.generated}")
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, substrings)
             if not allowed:
@@ -167,7 +170,7 @@ class RegexParameterGenerator(BaseParameterGenerator):
         end = f'"{terminator}'
         input_ids += self.llm.encode('"')
         while generating is True:
-            print(f"Generating: {self.generated!r}", flush=True)
+            self.log.log(logging.INFO, f"Generating: {self.generated}")
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -254,7 +257,7 @@ class IntegerParameterGenerator(BaseParameterGenerator):
         generating = True
         terminator = " " if is_last_parameter else ","
         while generating is True:
-            print(f"Generating: {self.generated!r}", flush=True)
+            self.log.log(logging.INFO, f"Generating: {self.generated}")
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -338,7 +341,7 @@ class NumberParameterGenerator(BaseParameterGenerator):
         generating = True
         terminator = " " if is_last_parameter else ","
         while generating is True:
-            print(f"Generating: {self.generated!r}", flush=True)
+            self.log.log(logging.INFO, f"Generating: {self.generated}")
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -461,6 +464,7 @@ class BoolParameterGenerator(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     function_names: list[str]
     llm_vocab: Vocab
+    log: Logger
     trie_vocab: Vocab = Vocab(
         vocab={
             0: "_",
@@ -543,7 +547,7 @@ class BoolParameterGenerator(BaseModel):
         prompts = f"Answer this prompt: {prompt}"
         input_ids = llm_prompt + llm.encode(prompts).squeeze(0).tolist()
         while generating is True:
-            print(f"Generating: {generated!r}", flush=True)
+            self.log.log(logging.INFO, f"Generating: {generated}")
             logits = np.array(llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(generated)
             mask = get_mask(logits, allowed, not_allowed)

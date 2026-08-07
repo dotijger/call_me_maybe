@@ -1,12 +1,11 @@
-from src_bonus.constraineddecoder import ConstrainedDecoder
-from src_bonus.error import (
+from src.constraineddecoder import ConstrainedDecoder
+from src.error import (
     EncodeError,
     DecodeError,
     ParameterError,
     ParsingError,
     VocabError,
     TrieError,
-    LogError,
 )
 from llm_sdk.llm_sdk import Small_LLM_Model
 from datetime import datetime
@@ -25,8 +24,6 @@ if __name__ == "__main__":
         ParsingError,
         VocabError,
         TrieError,
-        ValueError,
-        LogError,
     ) as e:
         print(e)
     end = datetime.now()

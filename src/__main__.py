@@ -24,6 +24,7 @@ if __name__ == "__main__":
         ParsingError,
         VocabError,
         TrieError,
+        ValueError,
     ) as e:
         print(e)
     end = datetime.now()

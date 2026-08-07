@@ -1,44 +1,41 @@
 from pydantic import BaseModel, model_validator, ConfigDict
 from llm_sdk.llm_sdk import Small_LLM_Model
-from src_bonus.log import Logger
-from src_bonus.error import VocabError
-from src_bonus.classes import Vocab, Trie
-from src_bonus.coder import Coder
+from src.error import VocabError, EncodeError
+from src.classes import Vocab, Trie
+from src.coder import Coder
 import numpy as np
-from src_bonus.helpers import (
+from src.helpers import (
     get_mask,
-    is_number,
     replace_g,
+    is_number,
     replace_space,
     extract_substrings,
 )
 from typing import Self
-import logging
 
 
 class BaseParameterGenerator(BaseModel):
     """
     gen =
-    BaseParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
+    BaseParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     llm: Small_LLM_Model
     llm_vocab: Vocab
     coder: Coder
-    log: Logger
     generated: str = ""
 
     def generate(
         self, input_ids: list[int], is_last: bool, context: str
-    ) -> str | None:
+    ) -> None:
         return None
 
 
 class StringParameterGenerator(BaseParameterGenerator):
     """
     gen =
-    StringParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
+    StringParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     def generate(
@@ -51,7 +48,7 @@ class StringParameterGenerator(BaseParameterGenerator):
         input_ids += self.coder.encode('"')
         substrings = extract_substrings(prompt)
         while generating is True:
-            self.log.log(logging.INFO, f"Generating: {self.generated}")
+            print(f"Generating: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, substrings)
             if not allowed:
@@ -155,7 +152,7 @@ class StringParameterGenerator(BaseParameterGenerator):
 class RegexParameterGenerator(BaseParameterGenerator):
     """
     gen =
-    RegexParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
+    RegexParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     is_pattern: bool = True
@@ -173,7 +170,7 @@ class RegexParameterGenerator(BaseParameterGenerator):
         end = f'"{terminator}'
         input_ids += self.coder.encode('"')
         while generating is True:
-            self.log.log(logging.INFO, f"Generating: {self.generated}")
+            print(f"Generating: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -250,7 +247,7 @@ class RegexParameterGenerator(BaseParameterGenerator):
 class IntegerParameterGenerator(BaseParameterGenerator):
     """
     gen =
-    IntegerParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
+    IntegerParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     def generate(
@@ -260,7 +257,7 @@ class IntegerParameterGenerator(BaseParameterGenerator):
         generating = True
         terminator = " " if is_last_parameter else ","
         while generating is True:
-            self.log.log(logging.INFO, f"Generating: {self.generated}")
+            print(f"Generating: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -334,7 +331,7 @@ class IntegerParameterGenerator(BaseParameterGenerator):
 class NumberParameterGenerator(BaseParameterGenerator):
     """
     gen =
-    NumberParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
+    NumberParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab,coder=Coder)
     """
 
     def generate(
@@ -344,7 +341,7 @@ class NumberParameterGenerator(BaseParameterGenerator):
         generating = True
         terminator = " " if is_last_parameter else ","
         while generating is True:
-            self.log.log(logging.INFO, f"Generating: {self.generated}")
+            print(f"Generating: {self.generated!r}", flush=True)
             logits = np.array(self.llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(is_last_parameter, prompt)
             if not allowed:
@@ -460,7 +457,7 @@ class BoolParameterGenerator(BaseModel):
     BooleanGenerator(
     function_names=list[str],
     llm=Small_LLM_Model(),
-    llm_vocab=Vocab()
+    llm_vocab=Vocab(),coder=Coder
     )
     """
 
@@ -468,7 +465,6 @@ class BoolParameterGenerator(BaseModel):
     function_names: list[str]
     llm_vocab: Vocab
     coder: Coder
-    log: Logger
     trie_vocab: Vocab = Vocab(
         vocab={
             0: "_",
@@ -550,9 +546,14 @@ class BoolParameterGenerator(BaseModel):
         not_allowed: list[int] = []
         prompts = f"Answer this prompt: {prompt}"
         text = replace_space(prompts)
-        input_ids = llm_prompt + self.coder.encode(text)
+        try:
+            input_ids = self.llm_prompt + self.coder.encode(text)
+        except EncodeError:
+            input_ids = (
+                self.llm_prompt + llm.encode(prompts).squeeze(0).tolist()
+            )
         while generating is True:
-            self.log.log(logging.INFO, f"Generating: {generated}")
+            print(f"Generating: {generated!r}", flush=True)
             logits = np.array(llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(generated)
             mask = get_mask(logits, allowed, not_allowed)

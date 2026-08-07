@@ -1,10 +1,12 @@
 from pydantic import BaseModel, model_validator, ConfigDict
+from src.log import Logger
 from src.classes import Trie, Vocab
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.helpers import get_mask
 from src.error import VocabError
 from typing import Self
 import numpy as np
+import logging
 
 
 class NameGenerator(BaseModel):
@@ -15,12 +17,14 @@ class NameGenerator(BaseModel):
     llm_vocab=Vocab(),
     llm_prompt=str
     )
+    log
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     function_names: list[str]
     llm_vocab: Vocab
     llm_prompt: list[int]
+    log: Logger
     trie_vocab: Vocab = Vocab(
         vocab={
             0: "_",
@@ -80,9 +84,9 @@ class NameGenerator(BaseModel):
         input_ids = []
         not_allowed: list[int] = []
         prompts = f"Answer this prompt: {prompt}"
-        input_ids = (self.llm_prompt + llm.encode(prompts).squeeze(0).tolist())
+        input_ids = self.llm_prompt + llm.encode(prompts).squeeze(0).tolist()
         while generating is True:
-            print(f"Generating: {generated!r}", flush=True)
+            self.log.log(logging.INFO, f"Generating: {generated}")
             logits = np.array(llm.get_logits_from_input_ids(input_ids))
             allowed = self._allowed(generated)
             mask = get_mask(logits, allowed, not_allowed)

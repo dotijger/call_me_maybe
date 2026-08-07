@@ -1,5 +1,5 @@
 from pydantic import BaseModel, model_validator
-from src_bonus.error import TrieError
+from src.error import TrieError
 from typing import Self, TypedDict, Any
 from enum import Enum
 

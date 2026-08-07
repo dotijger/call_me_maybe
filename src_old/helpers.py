@@ -70,7 +70,7 @@ def get_mask(
     non_arr = np.asarray(non, dtype=np.int64)
     keep = ~np.isin(ids_arr, non_arr)
     mask[ids_arr[keep]] = 0
-    return mask
+    return mask    
 
 
 def get_substring(text: str) -> list[str]:

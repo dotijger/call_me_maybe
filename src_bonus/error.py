@@ -1,3 +1,19 @@
+class LogError(BaseException):
+    """Shows errors related to a logger issue
+
+    Args:
+        BaseException: base exception class.
+    """
+
+    def __init__(self, msg: str) -> None:
+        """Creates a logging error
+
+        Args:
+            msg (str): Message to display if the error happens
+        """
+        super().__init__(f"Log Error: {msg}")
+
+
 class ParsingError(BaseException):
     """Shows errors related to a parsing issue
 

@@ -8,9 +8,10 @@ dependencies = [
   "mypy>=2.3.0",
   "numpy>=2.5.1",
   "pydantic>=2.13.4",
-  "torch>=2.13.0",
-  "transformers>=5.14.1",
+  "torch>=2.13.0",        # required at runtime by llm_sdk, never used in src code
+  "transformers>=5.14.1", # ditto
 ]
+
 
 [[tool.mypy.overrides]]
 module = "llm_sdk.*"

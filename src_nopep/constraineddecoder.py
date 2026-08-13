@@ -24,45 +24,6 @@ import logging
 
 
 class ConstrainedDecoder(BaseModel):
-    """Orchestrates the full natural-language-to-function-call pipeline.
-
-    Reads the prompts and function definitions from disk, drives
-    trie-constrained function-name selection followed by FSM-constrained
-    parameter-value generation for every prompt, and writes the
-    resulting structured function calls to the output JSON file.
-
-    Example:
-        decoder = ConstrainedDecoder(path=path, llm=Small_LLM_Model())
-
-    Attributes:
-        path (Parser): The CLI argument parser/validator used to locate
-            input and output files.
-        llm (Small_LLM_Model): The LLM wrapper used to obtain logits
-            and encode/decode text.
-        log (Logger | None): The logger used to trace pipeline
-            progress, created during validation if not supplied.
-        prompts (list[str]): The natural-language prompts to process.
-        functions (list[dict[str, Any]]): The parsed function
-            definitions available to the LLM.
-        function_names (list[str]): The names extracted from
-            ``functions``.
-        llm_vocab (Vocab): The model's vocabulary, mapping token ids to
-            token strings and back.
-        param_schema (dict[str, list[tuple[str, str]]]): A lookup from
-            function name to its ordered list of
-            ``(parameter_name, parameter_type)`` pairs.
-        nl_input_ids (list[int]): The token ids of the shared system
-            prompt describing the available functions.
-        output_dict (OutputDict): The result of the most recently
-            processed prompt.
-        output_list (list[OutputDict]): The accumulated results for
-            every processed prompt.
-        REGEX_EXAMPLES (str): Example text shown to the model when
-            extracting a ``regex`` parameter.
-        REPLACEMENT_EXAMPLES (str): Example text shown to the model
-            when extracting a ``replacement`` parameter.
-    """
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
     path: Parser = Parser()
     llm: Small_LLM_Model
@@ -78,22 +39,11 @@ class ConstrainedDecoder(BaseModel):
     output_list: list[OutputDict] = []
     REGEX_EXAMPLES: str = "Examples: extract digits or numbers -> \\d+ ; \
 substitute the word 'cat' -> 'cat' ; extract vowels -> [aeiouAEIOU] "
-    REPLACEMENT_EXAMPLES: str = "Examples: replace with NUMBERS -> NUMBERS ;\
+    REPLACEMENT_EXAMPLES: str = "Examples: replace with NUMBERS -> NUMBERS ; \
 replace with asterisks -> * ; replace with dog -> dog ."
 
     @model_validator(mode="after")
     def setup(self) -> Self:
-        """Initializes the logger, loads inputs, and builds the LLM vocab.
-
-        Creates the logger if needed, parses the natural-language
-        prompts and function definitions, loads and inverts the LLM's
-        vocabulary for O(1) id/token lookups, builds the parameter
-        schema lookup, and assembles the shared system prompt used for
-        function-name selection.
-
-        Returns:
-            Self: The validated model instance, fully initialized.
-        """
         # setup of the log
         if self.log is None:
             self.log = Logger(
@@ -143,17 +93,6 @@ replace with asterisks -> * ; replace with dog -> dog ."
         return self
 
     def _loading_parameters(self) -> dict[str, list[tuple[Any, Any]]]:
-        """Builds a lookup of parameter names/types per function.
-
-        Returns:
-            dict[str, list[tuple[Any, Any]]]: A mapping from function
-                name to an ordered list of
-                ``(parameter_name, parameter_type)`` pairs.
-
-        Raises:
-            KeyError: If a function definition is missing its
-                ``"parameters"`` key.
-        """
         param_schema = {}
         for function in self.functions:
             parameters = []
@@ -168,11 +107,6 @@ replace with asterisks -> * ; replace with dog -> dog ."
         return param_schema
 
     def run(self) -> None:
-        """Processes every prompt and writes the results to disk.
-
-        Returns:
-            None
-        """
         self.output_list = []
         for prompt in self.prompts:
             self._process_prompt(prompt)
@@ -180,23 +114,6 @@ replace with asterisks -> * ; replace with dog -> dog ."
         self._output_to_json()
 
     def _process_prompt(self, prompt: str) -> None:
-        """Runs the full pipeline for a single natural-language prompt.
-
-        Selects the function name via constrained decoding, then
-        generates each of that function's parameter values via the
-        appropriate constrained parameter generator, coerces the
-        generated values to their declared JSON types, and stores the
-        result in ``self.output_dict``.
-
-        Args:
-            prompt (str): The natural-language prompt to process.
-
-        Returns:
-            None
-
-        Raises:
-            LogError: If the logger has not been initialized.
-        """
         if self.log is None:
             raise LogError(
                 f"No logger found, cannot process prompt: {prompt}."
@@ -303,20 +220,6 @@ replace with asterisks -> * ; replace with dog -> dog ."
         }
 
     def _prepare_lexicon(self, prompt: str, fn_name: str) -> str:
-        """Builds a set of candidate words available for parameter extraction.
-
-        Splits the quote-aware prompt into words, dropping any word
-        that matches a component of the function name (so the function
-        name itself cannot be mistaken for a parameter value).
-
-        Args:
-            prompt (str): The natural-language prompt.
-            fn_name (str): The selected function's name, used to filter
-                out its own name components.
-
-        Returns:
-            str: The remaining candidate words, space-joined.
-        """
         terminator = (
             "'"
             if prompt.count("'") >= 2 and prompt.count("'") % 2 == 0
@@ -342,21 +245,6 @@ replace with asterisks -> * ; replace with dog -> dog ."
     def _get_parameter_generator(
         self, key: str, value: str
     ) -> BaseParameterGenerator:
-        """Instantiates the parameter generator matching a parameter type.
-
-        Args:
-            key (str): The parameter's name (used to detect the special
-                ``regex``/``replacement`` cases).
-            value (str): The parameter's declared JSON type (e.g.
-                ``"string"``, ``"number"``, ``"integer"``).
-
-        Returns:
-            BaseParameterGenerator: A generator instance appropriate for
-                the given parameter name and type.
-
-        Raises:
-            LogError: If the logger has not been initialized.
-        """
         if self.log is None:
             raise LogError(
                 "Logger not defined, unable to pass logger to parameter\
@@ -395,15 +283,6 @@ generator."
             )
 
     def _get_bool_paramgen(self) -> BoolParameterGenerator:
-        """Instantiates the boolean parameter generator.
-
-        Returns:
-            BoolParameterGenerator: A generator constrained to the
-                literals ``"True"`` and ``"False"``.
-
-        Raises:
-            LogError: If the logger has not been initialized.
-        """
         if self.log is None:
             raise LogError(
                 "Logger not defined, unable to pass logger to parameter\
@@ -424,24 +303,6 @@ generator."
         kind: str,
         paramdict: dict[str, str],
     ) -> str:
-        """Builds the natural-language prompt for extracting one parameter.
-
-        Args:
-            info (tuple[str, int]): The selected function name and its
-                total parameter count.
-            count (int): The 1-indexed position of the parameter
-                currently being extracted.
-            prompt (str): The original user prompt.
-            kind (str): The declared JSON type of the parameter being
-                extracted.
-            paramdict (dict[str, str]): The parameters already
-                extracted for this function call, used to tell the
-                model what not to re-extract.
-
-        Returns:
-            str: The composed prompt to feed to the parameter
-                generator.
-        """
         parameters = self.param_schema[info[0]]
         param_to_extract = parameters[count - 1][0]
         prompt = f"User prompt: {prompt} \
@@ -462,31 +323,11 @@ generator."
 
     @staticmethod
     def _allowed_tokens(text: str) -> list[str]:
-        """Splits a text into whitespace-separated tokens.
-
-        Args:
-            text (str): The text to split.
-
-        Returns:
-            list[str]: The whitespace-separated tokens of ``text``.
-        """
         return text.split(" ")
 
     def _remove_used_parameters(
         self, text: str, paramdict: dict[str, str]
     ) -> str:
-        """Removes already-extracted numeric values from the lexicon.
-
-        Args:
-            text (str): The current lexicon of candidate words.
-            paramdict (dict[str, str]): The parameters already
-                extracted for this function call.
-
-        Returns:
-            str: The lexicon with used numeric values removed. Returns
-                an empty string if no parameters have been extracted
-                yet.
-        """
         available = text.split(" ")
         if len(paramdict.items()) == 0:
             return ""
@@ -506,14 +347,6 @@ generator."
 
     @staticmethod
     def _check_dots(text: str) -> bool:
-        """Checks whether a string contains at least one decimal point.
-
-        Args:
-            text (str): The text to inspect.
-
-        Returns:
-            bool: ``True`` if ``text`` contains a ``.`` character.
-        """
         dots = 0
         for char in text:
             if char == ".":
@@ -521,14 +354,6 @@ generator."
         return dots != 0
 
     def _output_to_json(self) -> None:
-        """Writes the accumulated results to the configured output file.
-
-        Returns:
-            None
-
-        Raises:
-            LogError: If the logger has not been initialized.
-        """
         if self.log is None:
             raise LogError("Logger not found during output to JSON.")
         self.log.log(
@@ -547,11 +372,6 @@ generator."
         )
 
     def _print_input(self) -> None:
-        """Prints the program's startup banner.
-
-        Returns:
-            None
-        """
         print(
             Color.MAGENTA.value + "Initializing program..." + Color.RESET.value
         )

@@ -10,32 +10,14 @@ import logging
 
 
 class NameGenerator(BaseModel):
-    """Selects a function name from a fixed set via constrained decoding.
-
-    Builds a character-level trie over the allowed function names and
-    uses it to mask the model's logits at every decoding step, so that
-    only tokens which keep the generated text a valid prefix (or
-    completion) of one of the allowed names can ever be chosen.
-
-    Example:
-        ng = NameGenerator(
-            function_names=list[str],
-            llm_vocab=Vocab(),
-            llm_prompt=str,
-        )
-
-    Attributes:
-        function_names (list[str]): The function names the model is
-            allowed to choose from.
-        llm_vocab (Vocab): The model's vocabulary, mapping token ids to
-            token strings and back.
-        llm_prompt (list[int]): The token ids of the shared system
-            prompt prepended before every generation call.
-        log (Logger): The logger used to trace generation progress.
-        trie_vocab (Vocab): The restricted character vocabulary used to
-            build the function-name trie.
-        trie_functions (Trie | None): The trie built over
-            ``function_names``, populated on first validation.
+    """
+    ng =
+    NameGenerator(
+    function_names=list[str],
+    llm_vocab=Vocab(),
+    llm_prompt=str
+    )
+    log
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -82,12 +64,6 @@ class NameGenerator(BaseModel):
 
     @model_validator(mode="after")
     def load(self) -> Self:
-        """Builds the function-name trie if it has not been built yet.
-
-        Returns:
-            Self: The validated model instance, with ``trie_functions``
-                populated.
-        """
         if self.trie_functions is None:
             self.trie_functions = Trie(
                 vocab=self.trie_vocab, entries=self.function_names
@@ -96,39 +72,12 @@ class NameGenerator(BaseModel):
 
     @property
     def trie_entries(self) -> Trie:
-        """Returns the built function-name trie.
-
-        Returns:
-            Trie: The trie constructed over ``function_names``.
-        """
         assert self.trie_functions is not None
         return self.trie_functions
 
     def generate(self, llm: Small_LLM_Model, prompt: str) -> str:
-        """Generates a function name via trie-constrained decoding.
-
-        Repeatedly queries the model for next-token logits, masks out
-        every token that would not keep the generated text a valid
-        prefix or a complete entry of the trie, and appends the
-        highest-scoring remaining token until a complete function name
-        has been generated.
-
-        Example:
-            namegen.generate(llm_model, "function specific prompt")
-
-        Args:
-            llm (Small_LLM_Model): The LLM wrapper used to obtain
-                logits and encode text.
-            prompt (str): The function-selection prompt describing
-                which function should answer the user's request.
-
-        Returns:
-            str: The generated function name, guaranteed to be one of
-                ``function_names``.
-
-        Raises:
-            VocabError: If a generated token id cannot be found in the
-                LLM vocabulary.
+        """
+        namegen.generate(llm_model, "function specific prompt")
         """
         generated = ""
         generating = True
@@ -162,18 +111,6 @@ class NameGenerator(BaseModel):
         return generated
 
     def _allowed(self, generated: str) -> list[int]:
-        """Computes which token ids are valid continuations of ``generated``.
-
-        A token is considered valid if appending it to ``generated``
-        yields either a valid prefix of some trie entry or a complete
-        trie entry.
-
-        Args:
-            generated (str): The text generated so far.
-
-        Returns:
-            list[int]: The token ids that are safe to select next.
-        """
         allowed = []
         for value in self.llm_vocab.vocab.values():
             if self.trie_entries.is_prefix(generated + value):

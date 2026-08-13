@@ -15,24 +15,9 @@ import logging
 
 
 class BaseParameterGenerator(BaseModel):
-    """Base class for all constrained parameter-value generators.
-
-    Concrete subclasses override :meth:`generate` to constrain
-    decoding for a specific parameter type (string, regex, integer,
-    number, ...). The base implementation is a no-op used as a
-    fallback for unsupported parameter types.
-
-    Example:
-        gen = BaseParameterGenerator(llm=Small_LLM_Model, llm_vocab=Vocab)
-
-    Attributes:
-        llm (Small_LLM_Model): The LLM wrapper used to obtain logits
-            and encode text.
-        llm_vocab (Vocab): The model's vocabulary, mapping token ids to
-            token strings and back.
-        log (Logger): The logger used to trace generation progress.
-        generated (str): The text generated so far during the current
-            call to :meth:`generate`.
+    """
+    gen =
+    BaseParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -44,56 +29,18 @@ class BaseParameterGenerator(BaseModel):
     def generate(
         self, input_ids: list[int], is_last: bool, context: str
     ) -> str | None:
-        """Generates a parameter value (no-op base implementation).
-
-        Args:
-            input_ids (list[int]): The token ids of the prompt so far.
-            is_last (bool): Whether this is the last parameter of the
-                current function call.
-            context (str): The prompt text or lexicon used to constrain
-                the generated value.
-
-        Returns:
-            str | None: Always ``None`` in the base class; subclasses
-                return the generated parameter value as a string.
-        """
         return None
 
 
 class StringParameterGenerator(BaseParameterGenerator):
-    """Generates a quoted JSON string value via constrained decoding.
-
-    Restricts decoding so that only tokens which keep the generated
-    text a valid, quoted substring (or prefix of one) of the source
-    prompt can be selected, guaranteeing the extracted value is a
-    literal substring copied from the prompt.
-
-    Example:
-        gen = StringParameterGenerator(llm=Small_LLM_Model, llm_vocab=Vocab)
+    """
+    gen =
+    StringParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
     """
 
     def generate(
         self, input_ids: list[int], is_last_parameter: bool, prompt: str
     ) -> str:
-        """Generates a string parameter value copied from the prompt.
-
-        Args:
-            input_ids (list[int]): The token ids of the prompt so far.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call, which
-                determines the expected JSON terminator (``}`` vs
-                ``,``).
-            prompt (str): The natural-language prompt the value must be
-                extracted from.
-
-        Returns:
-            str: The generated string value, with surrounding quotes
-                and JSON terminator stripped.
-
-        Raises:
-            VocabError: If a generated token id cannot be found in the
-                LLM vocabulary.
-        """
         self.generated = '"'
         generating = True
         terminator = "}" if is_last_parameter else ","
@@ -132,17 +79,6 @@ class StringParameterGenerator(BaseParameterGenerator):
     def _allowed(
         self, is_last_parameter: bool, substrings: list[str]
     ) -> list[int]:
-        """Computes which token ids are valid continuations right now.
-
-        Args:
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            substrings (list[str]): The candidate substrings (quoted
-                spans and bare words) extracted from the prompt.
-
-        Returns:
-            list[int]: The token ids that are safe to select next.
-        """
         allowed = []
         if self.generated == "":
             for value in self.llm_vocab.vocab.values():
@@ -168,19 +104,6 @@ class StringParameterGenerator(BaseParameterGenerator):
         is_last_parameter: bool,
         substrings: list[str],
     ) -> bool:
-        """Checks whether a token is a valid first token of the value.
-
-        Args:
-            token (str): The candidate token string.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            substrings (list[str]): The candidate substrings extracted
-                from the prompt.
-
-        Returns:
-            bool: ``True`` if ``token`` may legally start (or complete)
-                the generated string value.
-        """
         temp = self.generated + token
         if token == '"':
             return True
@@ -196,20 +119,6 @@ class StringParameterGenerator(BaseParameterGenerator):
         is_last_parameter: bool,
         substrings: list[str],
     ) -> bool:
-        """Checks whether a token is a valid continuation of the value.
-
-        Args:
-            token (str): The candidate token string.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            substrings (list[str]): The candidate substrings extracted
-                from the prompt.
-
-        Returns:
-            bool: ``True`` if appending ``token`` keeps the generated
-                text a valid prefix (or completion) of one of
-                ``substrings``.
-        """
         temp = self.generated + token
         terminator = "}" if is_last_parameter else ","
         end = f'"{terminator}'
@@ -226,18 +135,9 @@ class StringParameterGenerator(BaseParameterGenerator):
 
     @staticmethod
     def _completed(content: str, substrings: list[str]) -> bool:
-        """Checks whether there is a longer string
+        """
+        Checks whether there is a longer string
         in substrings that we are looking for.
-
-        Args:
-            content (str): The candidate completed value.
-            substrings (list[str]): The candidate substrings extracted
-                from the prompt.
-
-        Returns:
-            bool: ``True`` if ``content`` exactly matches one of
-                ``substrings`` and no other entry extends it, ``False``
-                otherwise.
         """
         if content not in substrings:
             return False
@@ -250,21 +150,9 @@ class StringParameterGenerator(BaseParameterGenerator):
 
 
 class RegexParameterGenerator(BaseParameterGenerator):
-    """Generates a regex-pattern or replacement string value.
-
-    Restricts decoding to characters that are valid within a regular
-    expression pattern (when ``is_pattern`` is ``True``) or within a
-    plain replacement string (when ``is_pattern`` is ``False``).
-
-    Example:
-        gen = RegexParameterGenerator(llm=Small_LLM_Model, llm_vocab=Vocab)
-
-    Attributes:
-        is_pattern (bool): Whether the value being generated is a
-            regex pattern (``True``) or a replacement string
-            (``False``).
-        REGEX_CHAR (str): The set of special characters allowed in a
-            regex pattern in addition to alphanumeric characters.
+    """
+    gen =
+    RegexParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
     """
 
     is_pattern: bool = True
@@ -276,25 +164,6 @@ class RegexParameterGenerator(BaseParameterGenerator):
         is_last_parameter: bool,
         prompt: str,
     ) -> str:
-        """Generates a regex pattern or replacement string value.
-
-        Args:
-            input_ids (list[int]): The token ids of the prompt so far.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call, which
-                determines the expected JSON terminator (``}`` vs
-                ``,``).
-            prompt (str): The natural-language prompt guiding the
-                generated value.
-
-        Returns:
-            str: The generated pattern or replacement string, with
-                surrounding quotes and JSON terminator stripped.
-
-        Raises:
-            VocabError: If a generated token id cannot be found in the
-                LLM vocabulary.
-        """
         self.generated = '"'
         generating = True
         terminator = "}" if is_last_parameter else ","
@@ -327,16 +196,6 @@ class RegexParameterGenerator(BaseParameterGenerator):
         return self.generated
 
     def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
-        """Computes which token ids are valid continuations right now.
-
-        Args:
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            context (str): The prompt text guiding the generated value.
-
-        Returns:
-            list[int]: The token ids that are safe to select next.
-        """
         allowed = []
         if self.generated == "":
             for value in self.llm_vocab.vocab.values():
@@ -355,18 +214,6 @@ class RegexParameterGenerator(BaseParameterGenerator):
     def _valid_regex_start(
         self, token: str, is_last_parameter: bool, prompt: str
     ) -> bool:
-        """Checks whether a token is a valid first token of the value.
-
-        Args:
-            token (str): The candidate token string.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            prompt (str): The prompt text guiding the generated value.
-
-        Returns:
-            bool: ``True`` if ``token`` may legally start the generated
-                value.
-        """
         temp = self.generated + token
         if temp[0] != '"':
             return False
@@ -377,18 +224,6 @@ class RegexParameterGenerator(BaseParameterGenerator):
     def _valid_regex_mid(
         self, token: str, is_last_parameter: bool, prompt: str
     ) -> bool:
-        """Checks whether a token is a valid continuation of the value.
-
-        Args:
-            token (str): The candidate token string.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            prompt (str): The prompt text guiding the generated value.
-
-        Returns:
-            bool: ``True`` if the resulting content remains valid
-                according to :meth:`_valid_content`.
-        """
         temp = self.generated + token
         terminator = "}" if is_last_parameter else ","
         end = f'"{terminator}'
@@ -402,16 +237,6 @@ class RegexParameterGenerator(BaseParameterGenerator):
         return self._valid_content(content)
 
     def _valid_content(self, content: str) -> bool:
-        """Checks whether generated content is a valid pattern or string.
-
-        Args:
-            content (str): The unquoted content generated so far.
-
-        Returns:
-            bool: ``True`` if every character in ``content`` is allowed
-                given ``is_pattern`` (and, for replacement strings, the
-                20-character length limit is respected).
-        """
         if self.is_pattern:
             return all(c.isalnum() or c in self.REGEX_CHAR for c in content)
         if len(content) > 20:
@@ -420,37 +245,14 @@ class RegexParameterGenerator(BaseParameterGenerator):
 
 
 class IntegerParameterGenerator(BaseParameterGenerator):
-    """Generates an integer parameter value via constrained decoding.
-
-    Restricts decoding so that only digits (and an optional leading
-    minus sign) that also appear as a matching number in the source
-    prompt can be selected.
-
-    Example:
-        gen = IntegerParameterGenerator(llm=Small_LLM_Model, llm_vocab=Vocab)
+    """
+    gen =
+    IntegerParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
     """
 
     def generate(
         self, input_ids: list[int], is_last_parameter: bool, prompt: str
     ) -> str:
-        """Generates an integer parameter value copied from the prompt.
-
-        Args:
-            input_ids (list[int]): The token ids of the prompt so far.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call, which
-                determines the expected terminator (space vs comma).
-            prompt (str): The natural-language prompt the value must be
-                extracted from.
-
-        Returns:
-            str: The generated integer value as a string, with the
-                terminator stripped.
-
-        Raises:
-            VocabError: If a generated token id cannot be found in the
-                LLM vocabulary.
-        """
         self.generated = ""
         generating = True
         terminator = " " if is_last_parameter else ","
@@ -479,17 +281,6 @@ class IntegerParameterGenerator(BaseParameterGenerator):
         return self.generated
 
     def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
-        """Computes which token ids are valid continuations right now.
-
-        Args:
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            context (str): The prompt text the value must be extracted
-                from.
-
-        Returns:
-            list[int]: The token ids that are safe to select next.
-        """
         allowed = []
         if self.generated == "":
             for value in self.llm_vocab.vocab.values():
@@ -508,19 +299,6 @@ class IntegerParameterGenerator(BaseParameterGenerator):
     def _valid_int_start(
         self, token: str, is_last_parameter: bool, prompt: str
     ) -> bool:
-        """Checks whether a token is a valid first token of the value.
-
-        Args:
-            token (str): The candidate token string.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            prompt (str): The prompt text the value must be extracted
-                from.
-
-        Returns:
-            bool: ``True`` if ``token`` may legally start the generated
-                integer.
-        """
         temp = self.generated + token
         if len(temp) > 1:
             return self._valid_int_mid(token, is_last_parameter, prompt)
@@ -533,19 +311,6 @@ class IntegerParameterGenerator(BaseParameterGenerator):
     def _valid_int_mid(
         self, token: str, is_last_parameter: bool, prompt: str
     ) -> bool:
-        """Checks whether a token is a valid continuation of the value.
-
-        Args:
-            token (str): The candidate token string.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            prompt (str): The prompt text the value must be extracted
-                from.
-
-        Returns:
-            bool: ``True`` if appending ``token`` keeps the generated
-                text a numeric substring of ``prompt``.
-        """
         for char in token:
             if char == ".":
                 return False
@@ -564,36 +329,14 @@ class IntegerParameterGenerator(BaseParameterGenerator):
 
 
 class NumberParameterGenerator(BaseParameterGenerator):
-    """Generates a floating-point parameter value via constrained decoding.
-
-    Similar to :class:`IntegerParameterGenerator`, but additionally
-    allows a single decimal point within the generated value.
-
-    Example:
-        gen = NumberParameterGenerator(llm=Small_LLM_Model, llm_vocab=Vocab)
+    """
+    gen =
+    NumberParameterGenerator(llm=Small_LLM_Model,llm_vocab=Vocab)
     """
 
     def generate(
         self, input_ids: list[int], is_last_parameter: bool, prompt: str
     ) -> str:
-        """Generates a numeric parameter value copied from the prompt.
-
-        Args:
-            input_ids (list[int]): The token ids of the prompt so far.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call, which
-                determines the expected terminator (space vs comma).
-            prompt (str): The natural-language prompt the value must be
-                extracted from.
-
-        Returns:
-            str: The generated numeric value as a string, with the
-                terminator stripped.
-
-        Raises:
-            VocabError: If a generated token id cannot be found in the
-                LLM vocabulary.
-        """
         self.generated = ""
         generating = True
         terminator = " " if is_last_parameter else ","
@@ -622,21 +365,6 @@ class NumberParameterGenerator(BaseParameterGenerator):
         return self.generated
 
     def _allowed(self, is_last_parameter: bool, context: str) -> list[int]:
-        """Computes which token ids are valid continuations right now.
-
-        Dispatches to the dot-aware or dot-free validity check
-        depending on whether a decimal point has already been
-        generated.
-
-        Args:
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            context (str): The prompt text the value must be extracted
-                from.
-
-        Returns:
-            list[int]: The token ids that are safe to select next.
-        """
         allowed = []
         if self.generated == "":
             for value in self.llm_vocab.vocab.values():
@@ -666,19 +394,6 @@ class NumberParameterGenerator(BaseParameterGenerator):
     def _valid_flt_start(
         self, token: str, is_last_parameter: bool, prompt: str
     ) -> bool:
-        """Checks whether a token is a valid first token of the value.
-
-        Args:
-            token (str): The candidate token string.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            prompt (str): The prompt text the value must be extracted
-                from.
-
-        Returns:
-            bool: ``True`` if ``token`` may legally start the generated
-                number.
-        """
         temp = self.generated + token
         if len(temp) > 1:
             return self._valid_flt_mid_no_dot(token, is_last_parameter, prompt)
@@ -689,20 +404,6 @@ class NumberParameterGenerator(BaseParameterGenerator):
     def _valid_flt_mid_no_dot(
         self, token: str, is_last_parameter: bool, prompt: str
     ) -> bool:
-        """Checks token validity before a decimal point has been generated.
-
-        Args:
-            token (str): The candidate token string.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            prompt (str): The prompt text the value must be extracted
-                from.
-
-        Returns:
-            bool: ``True`` if appending ``token`` keeps the generated
-                text a numeric substring of ``prompt``, with at most
-                one decimal point and no embedded minus signs.
-        """
         dots = 0
         for char in token:
             if char == "-":
@@ -725,20 +426,6 @@ class NumberParameterGenerator(BaseParameterGenerator):
     def _valid_flt_mid_dot(
         self, token: str, is_last_parameter: bool, prompt: str
     ) -> bool:
-        """Checks token validity after a decimal dot has been generated.
-
-        Args:
-            token (str): The candidate token string.
-            is_last_parameter (bool): Whether this is the last
-                parameter of the current function call.
-            prompt (str): The prompt text the value must be extracted
-                from.
-
-        Returns:
-            bool: ``True`` if appending ``token`` keeps the generated
-                text a numeric substring of ``prompt``, without adding
-                another decimal point or a minus sign.
-        """
         for char in token:
             if char == ".":
                 return False
@@ -757,15 +444,6 @@ class NumberParameterGenerator(BaseParameterGenerator):
 
     @staticmethod
     def _check_dots(text: str) -> bool:
-        """Checks whether a string already contains a decimal point.
-
-        Args:
-            text (str): The text to inspect.
-
-        Returns:
-            bool: ``True`` if ``text`` contains at least one ``.``
-                character.
-        """
         dots = 0
         for char in text:
             if char == ".":
@@ -774,30 +452,13 @@ class NumberParameterGenerator(BaseParameterGenerator):
 
 
 class BoolParameterGenerator(BaseModel):
-    """Selects a boolean literal (``True``/``False``) via constrained decoding.
-
-    Builds a character-level trie over the two allowed literals and
-    uses it to mask the model's logits at every decoding step, mirroring
-    the approach used by :class:`~src.namegen.NameGenerator` for
-    function-name selection.
-
-    Example:
-        ng = BooleanGenerator(
-            function_names=list[str],
-            llm=Small_LLM_Model(),
-            llm_vocab=Vocab(),
-        )
-
-    Attributes:
-        function_names (list[str]): The allowed boolean literals
-            (``"True"`` and ``"False"``).
-        llm_vocab (Vocab): The model's vocabulary, mapping token ids to
-            token strings and back.
-        log (Logger): The logger used to trace generation progress.
-        trie_vocab (Vocab): The restricted character vocabulary used to
-            build the boolean trie.
-        trie_functions (Trie | None): The trie built over
-            ``function_names``, populated on first validation.
+    """
+    ng =
+    BooleanGenerator(
+    function_names=list[str],
+    llm=Small_LLM_Model(),
+    llm_vocab=Vocab()
+    )
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -845,12 +506,6 @@ class BoolParameterGenerator(BaseModel):
 
     @model_validator(mode="after")
     def load(self) -> Self:
-        """Builds the boolean-literal trie if it has not been built yet.
-
-        Returns:
-            Self: The validated model instance, with ``trie_functions``
-                populated.
-        """
         if self.trie_functions is None:
             self.trie_functions = Trie(
                 vocab=self.trie_vocab, entries=self.function_names
@@ -859,27 +514,10 @@ class BoolParameterGenerator(BaseModel):
 
     @property
     def trie_entries(self) -> Trie:
-        """Returns the built boolean-literal trie.
-
-        Returns:
-            Trie: The trie constructed over ``function_names``.
-        """
         assert self.trie_functions is not None
         return self.trie_functions
 
     def _allowed(self, generated: str) -> list[int]:
-        """Computes which token ids are valid continuations of ``generated``.
-
-        A token is considered valid if appending it to ``generated``
-        yields either a valid prefix of an allowed literal or a
-        complete literal.
-
-        Args:
-            generated (str): The text generated so far.
-
-        Returns:
-            list[int]: The token ids that are safe to select next.
-        """
         allowed = []
         for value in self.llm_vocab.vocab.values():
             if self.trie_entries.is_prefix(generated + value):
@@ -897,28 +535,10 @@ class BoolParameterGenerator(BaseModel):
     def generate(
         self, llm: Small_LLM_Model, llm_prompt: list[int], prompt: str
     ) -> str:
-        """Generates a boolean literal via trie-constrained decoding.
-
-        Example:
-            paramgen.generate(
-                input_ids, last_parameter, "function specific prompt"
-            )
-
-        Args:
-            llm (Small_LLM_Model): The LLM wrapper used to obtain
-                logits and encode text.
-            llm_prompt (list[int]): The token ids of the shared prompt
-                prepended before generation.
-            prompt (str): The parameter-extraction prompt describing
-                which boolean value to extract.
-
-        Returns:
-            str: The generated literal, either ``"True"`` or
-                ``"False"``.
-
-        Raises:
-            VocabError: If a generated token id cannot be found in the
-                LLM vocabulary.
+        """
+        paramgen.generate(
+        input_ids, last_parameter, "function specific prompt"
+        )
         """
         generated = ""
         generating = True

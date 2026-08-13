@@ -5,30 +5,10 @@ from pydantic import BaseModel, PrivateAttr
 
 
 class Parser(BaseModel):
-    """Wraps CLI argument parsing and input-file validation.
-
-    Builds the program's ``argparse`` parser on initialization,
-    exposes the parsed arguments through the ``args`` property, and
-    validates that the input JSON files referenced by those arguments
-    exist and contain well-formed JSON.
-    """
-
     _parser: argparse.ArgumentParser = PrivateAttr()
     _args: argparse.Namespace = PrivateAttr()
 
     def model_post_init(self, __context: object) -> None:
-        """Builds the CLI argument parser and parses ``sys.argv``.
-
-        Registers the ``--functions_definition``, ``--input``,
-        ``--output``, and ``--visual`` flags, then immediately parses
-        the command-line arguments into ``self._args``.
-
-        Args:
-            __context (object): The pydantic post-init context, unused.
-
-        Returns:
-            None
-        """
         self._parser = argparse.ArgumentParser(
             prog="uv run python3 -m src",
             description="Codam's Core Curriculum introductory project into \
@@ -65,18 +45,6 @@ and their definitions available to the LLM. (Default path: %(default)s)",
         self._args = self._parser.parse_args()
 
     def _check_files(self) -> None:
-        """Validates that the input and function-definition files are usable.
-
-        Confirms that both ``--input`` and ``--functions_definition``
-        point to existing, readable files containing valid JSON.
-
-        Raises:
-            ValueError: If a file is missing, is a directory, or
-                contains invalid JSON.
-
-        Returns:
-            None
-        """
         flags = [self._args.input, self._args.functions_definition]
         for flag in flags:
             try:
@@ -91,15 +59,6 @@ and their definitions available to the LLM. (Default path: %(default)s)",
 
     @property
     def args(self) -> argparse.Namespace:
-        """Returns the parsed CLI arguments after validating input files.
-
-        Returns:
-            argparse.Namespace: The parsed command-line arguments.
-
-        Raises:
-            ValueError: If the input or function-definition files fail
-                validation.
-        """
         try:
             self._check_files()
             return self._args
@@ -107,16 +66,6 @@ and their definitions available to the LLM. (Default path: %(default)s)",
             raise ValueError(e)
 
     def parse_prompts(self) -> list[str]:
-        """Loads and flattens the natural-language prompts from the input file.
-
-        Returns:
-            list[str]: Every prompt value found in the input JSON file,
-                in file order.
-
-        Raises:
-            ValueError: If the input or function-definition files fail
-                validation.
-        """
         try:
             self._check_files()
         except ValueError as e:

@@ -79,7 +79,7 @@ class ConstrainedDecoder(BaseModel):
     REGEX_EXAMPLES: str = "Examples: extract digits or numbers -> \\d+ ; \
 substitute the word 'cat' -> 'cat' ; extract vowels -> [aeiouAEIOU] "
     REPLACEMENT_EXAMPLES: str = "Examples: replace with NUMBERS -> NUMBERS ;\
-replace with asterisks -> * ; replace with dog -> dog ."
+    replace with dog -> dog, replace with asterisks -> * ."
 
     @model_validator(mode="after")
     def setup(self) -> Self:
@@ -95,10 +95,13 @@ replace with asterisks -> * ; replace with dog -> dog ."
             Self: The validated model instance, fully initialized.
         """
         # setup of the log
+        try:
+            visual = self.path.args.visual
+        except ValueError as e:
+            print(e)
+            sys.exit(1)
         if self.log is None:
-            self.log = Logger(
-                visual=self.path.args.visual
-            )  # parsing the prompts
+            self.log = Logger(visual=visual)
         try:
             self.prompts = self.path.parse_prompts()
         except ValueError as e:

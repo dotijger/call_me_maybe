@@ -51,7 +51,7 @@ and their definitions available to the LLM. (Default path: %(default)s)",
         self._parser.add_argument(
             "--output",
             type=Path,
-            default=Path("data/output/function_calls.json"),
+            default=Path("data/output/function_calling_results.json"),
             help="Path to where the output JSON will be written.\
 (Default path: %(default)s)",
         )

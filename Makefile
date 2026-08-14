@@ -1,9 +1,8 @@
 MYPY_FLAGS= --warn-return-any \
-						--warn-unused-ignore \
+						--warn-unused-ignores \
 						--ignore-missing-imports \
 						--disallow-untyped-defs \
-						--check-untyped-defs \
-						--explicit-package-bases
+						--check-untyped-defs
 SRC_DIR= src
 BONUS_DIR= src_bonus
 
@@ -39,6 +38,6 @@ lint:
 
 lint-strict:
 	uv run flake8 src
-	uv run mypy src --strict --explicit-package-bases
+	uv run mypy src --strict
 
 
